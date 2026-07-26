@@ -11,7 +11,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/jackc/pgx/v5"
-	"github.com/le-vlad/pgbranch/pkg/core"
 	"github.com/le-vlad/pgbranch/pkg/schema"
 	"github.com/spf13/cobra"
 )
@@ -55,7 +54,7 @@ Examples:
 			sourceBranch := args[0]
 			targetBranch := args[1]
 
-			brancher, err := core.NewBrancher()
+			brancher, err := openBrancher()
 			if err != nil {
 				return err
 			}

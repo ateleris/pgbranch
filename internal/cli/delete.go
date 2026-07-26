@@ -5,8 +5,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-
-	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var deleteForce bool
@@ -31,14 +29,14 @@ func init() {
 }
 
 func runDelete(cmd *cobra.Command, args []string) error {
-	brancher, err := core.NewBrancher()
+	brancher, err := openBrancher()
 	if err != nil {
 		return err
 	}
 
 	name := args[0]
 
-	if err := brancher.DeleteBranch(name, deleteForce); err != nil {
+	if err := brancher.DeleteBranch(cmd.Context(), name, deleteForce); err != nil {
 		return err
 	}
 

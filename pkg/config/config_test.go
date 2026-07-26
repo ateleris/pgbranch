@@ -150,22 +150,13 @@ func TestConnectionString(t *testing.T) {
 }
 
 func TestSaveAndLoad(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "pgbranch-config-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(originalDir)
-
-	err = os.Chdir(tmpDir)
-	require.NoError(t, err)
-
-	pgbranchDir := filepath.Join(tmpDir, DirName)
-	err = os.MkdirAll(pgbranchDir, 0755)
+	err := os.MkdirAll(RootDir(tmpDir), 0755)
 	require.NoError(t, err)
 
 	cfg := &Config{
+		Root:     tmpDir,
 		Database: "testdb",
 		Host:     "localhost",
 		Port:     5432,
@@ -176,13 +167,13 @@ func TestSaveAndLoad(t *testing.T) {
 	err = cfg.Save()
 	require.NoError(t, err)
 
-	configPath := filepath.Join(pgbranchDir, ConfigFileName)
-	_, err = os.Stat(configPath)
+	_, err = os.Stat(ConfigPath(tmpDir))
 	require.NoError(t, err)
 
-	loadedCfg, err := Load()
+	loadedCfg, err := Load(tmpDir)
 	require.NoError(t, err)
 
+	assert.Equal(t, tmpDir, loadedCfg.Root)
 	assert.Equal(t, cfg.Database, loadedCfg.Database)
 	assert.Equal(t, cfg.Host, loadedCfg.Host)
 	assert.Equal(t, cfg.Port, loadedCfg.Port)
@@ -190,57 +181,36 @@ func TestSaveAndLoad(t *testing.T) {
 	assert.Equal(t, cfg.Password, loadedCfg.Password)
 }
 
+func TestSaveWithoutRoot(t *testing.T) {
+	cfg := &Config{Database: "testdb"}
+
+	err := cfg.Save()
+	assert.Error(t, err)
+}
+
+func TestLoadNotInitialized(t *testing.T) {
+	_, err := Load(t.TempDir())
+
+	assert.ErrorIs(t, err, ErrNotInitialized)
+}
+
 func TestIsInitialized(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "pgbranch-init-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	defer os.Chdir(originalDir)
+	assert.False(t, IsInitialized(tmpDir))
 
-	err = os.Chdir(tmpDir)
+	err := os.MkdirAll(RootDir(tmpDir), 0755)
 	require.NoError(t, err)
 
-	assert.False(t, IsInitialized())
-
-	err = os.MkdirAll(filepath.Join(tmpDir, DirName), 0755)
-	require.NoError(t, err)
-
-	assert.True(t, IsInitialized())
+	assert.True(t, IsInitialized(tmpDir))
 }
 
-func TestGetRootDir(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
+func TestPathHelpers(t *testing.T) {
+	dir := filepath.Join("some", "workspace")
 
-	rootDir, err := GetRootDir()
-	require.NoError(t, err)
-
-	expected := filepath.Join(cwd, DirName)
-	assert.Equal(t, expected, rootDir)
-}
-
-func TestGetConfigPath(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-
-	configPath, err := GetConfigPath()
-	require.NoError(t, err)
-
-	expected := filepath.Join(cwd, DirName, ConfigFileName)
-	assert.Equal(t, expected, configPath)
-}
-
-func TestGetSnapshotsDir(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-
-	snapshotsDir, err := GetSnapshotsDir()
-	require.NoError(t, err)
-
-	expected := filepath.Join(cwd, DirName, SnapshotsDir)
-	assert.Equal(t, expected, snapshotsDir)
+	assert.Equal(t, filepath.Join(dir, DirName), RootDir(dir))
+	assert.Equal(t, filepath.Join(dir, DirName, ConfigFileName), ConfigPath(dir))
+	assert.Equal(t, filepath.Join(dir, DirName, SnapshotsDirName), SnapshotsDir(dir))
 }
 
 func TestConnectionURLForDB(t *testing.T) {

@@ -5,8 +5,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-
-	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var logCmd = &cobra.Command{
@@ -20,7 +18,7 @@ Example:
 }
 
 func runLog(cmd *cobra.Command, args []string) error {
-	brancher, err := core.NewBrancher()
+	brancher, err := openBrancher()
 	if err != nil {
 		return err
 	}

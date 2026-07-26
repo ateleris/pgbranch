@@ -42,7 +42,7 @@ func init() {
 }
 
 func runPrune(cmd *cobra.Command, args []string) error {
-	brancher, err := core.NewBrancher()
+	brancher, err := openBrancher()
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	deleted, errors := brancher.PruneBranches(toPrune)
+	deleted, errors := brancher.PruneBranches(cmd.Context(), toPrune)
 
 	green := color.New(color.FgGreen).SprintFunc()
 	red := color.New(color.FgRed).SprintFunc()

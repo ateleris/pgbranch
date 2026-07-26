@@ -6,8 +6,8 @@ import (
 	"sort"
 
 	"github.com/le-vlad/pgbranch/internal/credentials"
-	"github.com/le-vlad/pgbranch/pkg/remote"
 	"github.com/le-vlad/pgbranch/pkg/config"
+	"github.com/le-vlad/pgbranch/pkg/remote"
 	"github.com/spf13/cobra"
 )
 
@@ -62,7 +62,7 @@ Examples:
 			name := args[0]
 			url := args[1]
 
-			cfg, err := config.Load()
+			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
@@ -179,7 +179,7 @@ func newRemoteRemoveCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 
-			cfg, err := config.Load()
+			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
@@ -206,7 +206,7 @@ func newRemoteListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List configured remotes",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
@@ -244,7 +244,7 @@ func newRemoteLsRemoteCmd() *cobra.Command {
 		Use:   "ls-remote",
 		Short: "List branches on a remote",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
+			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
@@ -302,7 +302,7 @@ func newRemoteSetDefaultCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 
-			cfg, err := config.Load()
+			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
@@ -352,7 +352,7 @@ func newRemoteDeleteBranchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			branchName := args[0]
 
-			cfg, err := config.Load()
+			cfg, err := loadConfig()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}

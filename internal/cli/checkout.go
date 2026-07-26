@@ -54,7 +54,7 @@ func init() {
 }
 
 func runCheckout(cmd *cobra.Command, args []string) error {
-	brancher, err := core.NewBrancher()
+	brancher, err := openBrancher()
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func runCheckout(cmd *cobra.Command, args []string) error {
 		yellow := color.New(color.FgYellow).SprintFunc()
 		fmt.Printf("%s Creating branch '%s'...\n", yellow("→"), name)
 
-		if err := brancher.CreateBranch(name); err != nil {
+		if err := brancher.CreateBranch(cmd.Context(), name); err != nil {
 			return err
 		}
 	}
@@ -86,7 +86,7 @@ func runCheckout(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("%s Switching to branch '%s'...\n", yellow("→"), name)
 
-	if err := brancher.Checkout(name); err != nil {
+	if err := brancher.Checkout(cmd.Context(), name); err != nil {
 		return err
 	}
 

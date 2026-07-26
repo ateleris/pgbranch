@@ -1,14 +1,9 @@
 package postgres
 
-import (
-	"github.com/le-vlad/pgbranch/pkg/config"
-)
+import "context"
 
-func (c *Client) CreateSnapshot(snapshotDBName string) error {
-	return c.CreateDatabaseFromTemplate(c.Config.Database, snapshotDBName)
-}
-
-func CreateSnapshotDB(cfg *config.Config, snapshotDBName string) error {
-	client := NewClient(cfg)
-	return client.CreateSnapshot(snapshotDBName)
+// CreateSnapshot creates a snapshot database from the configured database
+// using it as a template.
+func (c *Client) CreateSnapshot(ctx context.Context, snapshotDBName string) error {
+	return c.CreateDatabaseFromTemplate(ctx, c.Config.Database, snapshotDBName)
 }

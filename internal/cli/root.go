@@ -1,9 +1,15 @@
 package cli
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/pkg/config"
+	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var rootCmd = &cobra.Command{
@@ -29,9 +35,36 @@ Share snapshots with your team:
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
+}
+
+// workspace returns the directory the CLI operates on: the current working
+// directory. Library callers pass their workspace directory explicitly.
+func workspace() (string, error) {
+	return config.WorkingDir()
+}
+
+// openBrancher opens the pgbranch workspace in the current working directory.
+func openBrancher() (*core.Brancher, error) {
+	dir, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+	return core.Open(dir)
+}
+
+// loadConfig loads the configuration from the current working directory.
+func loadConfig() (*config.Config, error) {
+	dir, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+	return config.Load(dir)
 }
 
 func init() {

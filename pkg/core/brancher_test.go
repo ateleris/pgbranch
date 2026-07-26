@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/le-vlad/pgbranch/pkg/postgres"
-	"github.com/le-vlad/pgbranch/pkg/storage"
 	"github.com/le-vlad/pgbranch/internal/testutil"
 	"github.com/le-vlad/pgbranch/pkg/config"
+	"github.com/le-vlad/pgbranch/pkg/postgres"
+	"github.com/le-vlad/pgbranch/pkg/storage"
 )
 
 func TestInitialize(t *testing.T) {
@@ -30,19 +30,19 @@ func TestInitialize(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
-	assert.True(t, config.IsInitialized())
+	assert.True(t, config.IsInitialized(testDir.Path))
 
-	loadedCfg, err := config.Load()
+	loadedCfg, err := config.Load(testDir.Path)
 	require.NoError(t, err)
 	assert.Equal(t, cfg.Database, loadedCfg.Database)
 	assert.Equal(t, cfg.Host, loadedCfg.Host)
 	assert.Equal(t, cfg.Port, loadedCfg.Port)
 	assert.Equal(t, cfg.User, loadedCfg.User)
 
-	meta, err := storage.LoadMetadata()
+	meta, err := storage.LoadMetadata(testDir.Path)
 	require.NoError(t, err)
 	assert.Empty(t, meta.CurrentBranch)
 	assert.Len(t, meta.Branches, 0)
@@ -64,7 +64,7 @@ func TestBrancherOperations(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
 	setupSQL := `
@@ -80,11 +80,11 @@ func TestBrancherOperations(t *testing.T) {
 	err = execSQL(ctx, cfg, setupSQL)
 	require.NoError(t, err)
 
-	brancher, err := NewBrancher()
+	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
 	t.Run("CreateBranch", func(t *testing.T) {
-		err := brancher.CreateBranch("main")
+		err := brancher.CreateBranch(ctx, "main")
 		require.NoError(t, err)
 
 		branch, ok := brancher.Metadata.GetBranch("main")
@@ -102,13 +102,13 @@ func TestBrancherOperations(t *testing.T) {
 			Password: cfg.Password,
 		}
 		snapshotClient := postgres.NewClient(snapshotCfg)
-		exists, err := snapshotClient.DatabaseExists()
+		exists, err := snapshotClient.DatabaseExists(ctx)
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})
 
 	t.Run("CreateBranchDuplicate", func(t *testing.T) {
-		err := brancher.CreateBranch("main")
+		err := brancher.CreateBranch(ctx, "main")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 	})
@@ -123,7 +123,7 @@ func TestBrancherOperations(t *testing.T) {
 		brancher.Metadata.CurrentBranch = "main"
 		brancher.Metadata.Save()
 
-		err := brancher.CreateBranch("feature-1")
+		err := brancher.CreateBranch(ctx, "feature-1")
 		require.NoError(t, err)
 
 		branch, ok := brancher.Metadata.GetBranch("feature-1")
@@ -160,7 +160,7 @@ func TestCheckoutWorkflow(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
 	setupSQL := `
@@ -176,10 +176,10 @@ func TestCheckoutWorkflow(t *testing.T) {
 	err = execSQL(ctx, cfg, setupSQL)
 	require.NoError(t, err)
 
-	brancher, err := NewBrancher()
+	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch("main")
+	err = brancher.CreateBranch(ctx, "main")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -208,7 +208,7 @@ func TestCheckoutWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	err = brancher.Checkout("main")
+	err = brancher.Checkout(ctx, "main")
 	require.NoError(t, err)
 
 	assert.Equal(t, "main", brancher.Metadata.CurrentBranch)
@@ -246,18 +246,18 @@ func TestDeleteBranch(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
 	err = execSQL(ctx, cfg, "CREATE TABLE test (id SERIAL PRIMARY KEY)")
 	require.NoError(t, err)
 
-	brancher, err := NewBrancher()
+	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch("main")
+	err = brancher.CreateBranch(ctx, "main")
 	require.NoError(t, err)
-	err = brancher.CreateBranch("feature-1")
+	err = brancher.CreateBranch(ctx, "feature-1")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -265,7 +265,7 @@ func TestDeleteBranch(t *testing.T) {
 	feature1Branch, _ := brancher.Metadata.GetBranch("feature-1")
 	feature1SnapshotDB := feature1Branch.Snapshot
 
-	err = brancher.DeleteBranch("feature-1", false)
+	err = brancher.DeleteBranch(ctx, "feature-1", false)
 	require.NoError(t, err)
 
 	assert.False(t, brancher.Metadata.BranchExists("feature-1"))
@@ -278,15 +278,15 @@ func TestDeleteBranch(t *testing.T) {
 		Password: cfg.Password,
 	}
 	snapshotClient := postgres.NewClient(snapshotCfg)
-	exists, err := snapshotClient.DatabaseExists()
+	exists, err := snapshotClient.DatabaseExists(ctx)
 	require.NoError(t, err)
 	assert.False(t, exists)
 
-	err = brancher.DeleteBranch("main", false)
+	err = brancher.DeleteBranch(ctx, "main", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot delete current branch")
 
-	err = brancher.DeleteBranch("main", true)
+	err = brancher.DeleteBranch(ctx, "main", true)
 	require.NoError(t, err)
 	assert.Empty(t, brancher.Metadata.CurrentBranch)
 }
@@ -307,16 +307,16 @@ func TestUpdateBranch(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
 	err = execSQL(ctx, cfg, "CREATE TABLE items (id SERIAL PRIMARY KEY, name VARCHAR(100)); INSERT INTO items (name) VALUES ('Item1')")
 	require.NoError(t, err)
 
-	brancher, err := NewBrancher()
+	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch("main")
+	err = brancher.CreateBranch(ctx, "main")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -324,7 +324,7 @@ func TestUpdateBranch(t *testing.T) {
 	err = execSQL(ctx, cfg, "INSERT INTO items (name) VALUES ('Item2'), ('Item3'), ('Item4'), ('Item5')")
 	require.NoError(t, err)
 
-	err = brancher.UpdateBranch("main")
+	err = brancher.UpdateBranch(ctx, "main")
 	require.NoError(t, err)
 
 	branch, _ := brancher.Metadata.GetBranch("main")
@@ -336,7 +336,7 @@ func TestUpdateBranch(t *testing.T) {
 		Password: cfg.Password,
 	}
 	snapshotClient := postgres.NewClient(snapshotCfg)
-	exists, err := snapshotClient.DatabaseExists()
+	exists, err := snapshotClient.DatabaseExists(ctx)
 	require.NoError(t, err)
 	assert.True(t, exists)
 
@@ -377,13 +377,13 @@ func TestCheckoutNonExistentBranch(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
-	brancher, err := NewBrancher()
+	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.Checkout("non-existent")
+	err = brancher.Checkout(ctx, "non-existent")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not exist")
 }
@@ -404,7 +404,7 @@ func TestFullE2EWorkflow(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
 	setupSQL := `
@@ -434,10 +434,10 @@ func TestFullE2EWorkflow(t *testing.T) {
 	err = execSQL(ctx, cfg, setupSQL)
 	require.NoError(t, err)
 
-	brancher, err := NewBrancher()
+	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch("main")
+	err = brancher.CreateBranch(ctx, "main")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -477,10 +477,10 @@ func TestFullE2EWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, commentCount)
 
-	err = brancher.CreateBranch("feature-add-comments")
+	err = brancher.CreateBranch(ctx, "feature-add-comments")
 	require.NoError(t, err)
 
-	err = brancher.Checkout("main")
+	err = brancher.Checkout(ctx, "main")
 	require.NoError(t, err)
 
 	userCount, err = countRows(ctx, cfg, "users")
@@ -494,7 +494,7 @@ func TestFullE2EWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 
-	err = brancher.Checkout("feature-add-comments")
+	err = brancher.Checkout(ctx, "feature-add-comments")
 	require.NoError(t, err)
 
 	userCount, err = countRows(ctx, cfg, "users")
@@ -509,10 +509,10 @@ func TestFullE2EWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	err = brancher.Checkout("main")
+	err = brancher.Checkout(ctx, "main")
 	require.NoError(t, err)
 
-	err = brancher.DeleteBranch("feature-add-comments", false)
+	err = brancher.DeleteBranch(ctx, "feature-add-comments", false)
 	require.NoError(t, err)
 
 	branches := brancher.ListBranches()
@@ -596,7 +596,7 @@ func TestCheckoutAutoSave(t *testing.T) {
 
 	cfg := pg.GetConfig()
 
-	err = Initialize(cfg.Database, cfg.Host, cfg.Port, cfg.User, cfg.Password)
+	err = Initialize(testDir.Path, cfg)
 	require.NoError(t, err)
 
 	setupSQL := `
@@ -609,18 +609,18 @@ func TestCheckoutAutoSave(t *testing.T) {
 	err = execSQL(ctx, cfg, setupSQL)
 	require.NoError(t, err)
 
-	brancher, err := NewBrancher()
+	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch("main")
+	err = brancher.CreateBranch(ctx, "main")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
 
-	err = brancher.CreateBranch("feature")
+	err = brancher.CreateBranch(ctx, "feature")
 	require.NoError(t, err)
 
-	err = brancher.Checkout("feature")
+	err = brancher.Checkout(ctx, "feature")
 	require.NoError(t, err)
 
 	featureSQL := `
@@ -638,7 +638,7 @@ func TestCheckoutAutoSave(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	err = brancher.Checkout("main")
+	err = brancher.Checkout(ctx, "main")
 	require.NoError(t, err)
 
 	count, err = countRows(ctx, cfg, "items")
@@ -653,7 +653,7 @@ func TestCheckoutAutoSave(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, exists)
 
-	err = brancher.Checkout("feature")
+	err = brancher.Checkout(ctx, "feature")
 	require.NoError(t, err)
 
 	count, err = countRows(ctx, cfg, "items")

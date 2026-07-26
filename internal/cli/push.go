@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/le-vlad/pgbranch/pkg/archive"
-	"github.com/le-vlad/pgbranch/pkg/core"
 	"github.com/le-vlad/pgbranch/pkg/remote"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +41,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			branchName := args[0]
 
-			brancher, err := core.NewBrancher()
+			brancher, err := openBrancher()
 			if err != nil {
 				return err
 			}

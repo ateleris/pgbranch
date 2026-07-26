@@ -44,7 +44,7 @@ func StartPostgresContainerWithArgs(ctx context.Context, serverArgs []string) (*
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
-				WithStartupTimeout(60*time.Second),
+				WithStartupTimeout(60 * time.Second),
 		),
 	}
 
@@ -102,41 +102,26 @@ func (tp *TestPostgres) GetConfig() *config.Config {
 	}
 }
 
+// TestDir is a temporary pgbranch workspace. Path is passed explicitly to the
+// packages under test, so tests never depend on the process working directory
+// and can run in parallel.
 type TestDir struct {
-	Path     string
-	Original string
+	Path string
 }
 
 func SetupTestDir(t *testing.T) *TestDir {
 	t.Helper()
-
-	originalDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current directory: %v", err)
-	}
 
 	tmpDir, err := os.MkdirTemp("", "pgbranch-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp directory: %v", err)
 	}
 
-	if err := os.Chdir(tmpDir); err != nil {
-		os.RemoveAll(tmpDir)
-		t.Fatalf("failed to change to temp directory: %v", err)
-	}
-
-	return &TestDir{
-		Path:     tmpDir,
-		Original: originalDir,
-	}
+	return &TestDir{Path: tmpDir}
 }
 
 func (td *TestDir) Cleanup(t *testing.T) {
 	t.Helper()
-
-	if err := os.Chdir(td.Original); err != nil {
-		t.Errorf("failed to restore original directory: %v", err)
-	}
 
 	if err := os.RemoveAll(td.Path); err != nil {
 		t.Errorf("failed to remove temp directory: %v", err)
@@ -146,8 +131,8 @@ func (td *TestDir) Cleanup(t *testing.T) {
 func (td *TestDir) CreatePgbranchDir(t *testing.T) string {
 	t.Helper()
 
-	pgbranchDir := filepath.Join(td.Path, ".pgbranch")
-	snapshotsDir := filepath.Join(pgbranchDir, "snapshots")
+	pgbranchDir := config.RootDir(td.Path)
+	snapshotsDir := filepath.Join(pgbranchDir, config.SnapshotsDirName)
 
 	if err := os.MkdirAll(snapshotsDir, 0755); err != nil {
 		t.Fatalf("failed to create pgbranch directories: %v", err)
@@ -161,6 +146,7 @@ func (td *TestDir) WriteConfig(t *testing.T, cfg *config.Config) {
 
 	td.CreatePgbranchDir(t)
 
+	cfg.Root = td.Path
 	if err := cfg.Save(); err != nil {
 		t.Fatalf("failed to save config: %v", err)
 	}

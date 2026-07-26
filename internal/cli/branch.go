@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/fatih/color"
@@ -26,7 +27,7 @@ Examples:
 }
 
 func runBranch(cmd *cobra.Command, args []string) error {
-	brancher, err := core.NewBrancher()
+	brancher, err := openBrancher()
 	if err != nil {
 		return err
 	}
@@ -36,7 +37,7 @@ func runBranch(cmd *cobra.Command, args []string) error {
 	}
 
 	name := args[0]
-	return createBranch(brancher, name)
+	return createBranch(cmd.Context(), brancher, name)
 }
 
 func listBranches(b *core.Brancher) error {
@@ -60,8 +61,8 @@ func listBranches(b *core.Brancher) error {
 	return nil
 }
 
-func createBranch(b *core.Brancher, name string) error {
-	if err := b.CreateBranch(name); err != nil {
+func createBranch(ctx context.Context, b *core.Brancher, name string) error {
+	if err := b.CreateBranch(ctx, name); err != nil {
 		return err
 	}
 
