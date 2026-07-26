@@ -6,7 +6,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/le-vlad/pgbranch/internal/core"
+	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var branchCmd = &cobra.Command{

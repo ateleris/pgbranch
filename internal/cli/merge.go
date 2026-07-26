@@ -11,8 +11,8 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/jackc/pgx/v5"
-	"github.com/le-vlad/pgbranch/internal/core"
-	"github.com/le-vlad/pgbranch/internal/schema"
+	"github.com/le-vlad/pgbranch/pkg/core"
+	"github.com/le-vlad/pgbranch/pkg/schema"
 	"github.com/spf13/cobra"
 )
 

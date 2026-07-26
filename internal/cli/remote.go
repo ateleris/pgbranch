@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"github.com/le-vlad/pgbranch/internal/credentials"
-	"github.com/le-vlad/pgbranch/internal/remote"
+	"github.com/le-vlad/pgbranch/pkg/remote"
 	"github.com/le-vlad/pgbranch/pkg/config"
 	"github.com/spf13/cobra"
 )

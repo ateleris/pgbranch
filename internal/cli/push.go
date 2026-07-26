@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/le-vlad/pgbranch/internal/archive"
-	"github.com/le-vlad/pgbranch/internal/core"
-	"github.com/le-vlad/pgbranch/internal/remote"
+	"github.com/le-vlad/pgbranch/pkg/archive"
+	"github.com/le-vlad/pgbranch/pkg/core"
+	"github.com/le-vlad/pgbranch/pkg/remote"
 	"github.com/spf13/cobra"
 )
 

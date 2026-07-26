@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/le-vlad/pgbranch/internal/postgres"
-	"github.com/le-vlad/pgbranch/internal/storage"
+	"github.com/le-vlad/pgbranch/pkg/postgres"
+	"github.com/le-vlad/pgbranch/pkg/storage"
 	"github.com/le-vlad/pgbranch/pkg/config"
 )
 

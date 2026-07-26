@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/le-vlad/pgbranch/internal/schema"
+	"github.com/le-vlad/pgbranch/pkg/schema"
 )
 
 func CopySchema(ctx context.Context, sourceConn, targetConn *pgx.Conn, tables []string, sourceDB string) error {

@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/le-vlad/pgbranch/internal/postgres"
-	"github.com/le-vlad/pgbranch/internal/storage"
+	"github.com/le-vlad/pgbranch/pkg/postgres"
+	"github.com/le-vlad/pgbranch/pkg/storage"
 	"github.com/le-vlad/pgbranch/internal/testutil"
 	"github.com/le-vlad/pgbranch/pkg/config"
 )

@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/le-vlad/pgbranch/internal/postgres"
+	"github.com/le-vlad/pgbranch/pkg/postgres"
 	"github.com/le-vlad/pgbranch/pkg/config"
 )
 

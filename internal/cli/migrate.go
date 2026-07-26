@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/le-vlad/pgbranch/internal/migrate"
+	"github.com/le-vlad/pgbranch/pkg/migrate"
 	"github.com/spf13/cobra"
 )
 
