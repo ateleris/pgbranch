@@ -50,6 +50,11 @@ type Config struct {
 	URL string `json:"url"`
 
 	Options map[string]string `json:"options,omitempty"`
+
+	// Credentials resolves the access keys for backends that need them.
+	// When nil, OptionsCredentials is used, which reads "access_key" and
+	// "secret_key" from Options and nothing else. It is never serialized.
+	Credentials CredentialsProvider `json:"-"`
 }
 
 func (c *Config) Validate() error {

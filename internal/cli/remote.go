@@ -254,14 +254,7 @@ func newRemoteLsRemoteCmd() *cobra.Command {
 				return err
 			}
 
-			remoteConfig := &remote.Config{
-				Name:    remoteCfg.Name,
-				Type:    remoteCfg.Type,
-				URL:     remoteCfg.URL,
-				Options: remoteCfg.Options,
-			}
-
-			r, err := remote.New(remoteConfig)
+			r, err := newRemote(remoteCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create remote: %w", err)
 			}
@@ -362,14 +355,7 @@ func newRemoteDeleteBranchCmd() *cobra.Command {
 				return err
 			}
 
-			remoteConfig := &remote.Config{
-				Name:    remoteCfg.Name,
-				Type:    remoteCfg.Type,
-				URL:     remoteCfg.URL,
-				Options: remoteCfg.Options,
-			}
-
-			r, err := remote.New(remoteConfig)
+			r, err := newRemote(remoteCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create remote: %w", err)
 			}

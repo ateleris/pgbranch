@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/le-vlad/pgbranch/pkg/archive"
-	"github.com/le-vlad/pgbranch/pkg/remote"
 	"github.com/le-vlad/pgbranch/pkg/storage"
 	"github.com/spf13/cobra"
 )
@@ -59,14 +58,7 @@ Examples:
 				return err
 			}
 
-			remoteConfig := &remote.Config{
-				Name:    remoteCfg.Name,
-				Type:    remoteCfg.Type,
-				URL:     remoteCfg.URL,
-				Options: remoteCfg.Options,
-			}
-
-			r, err := remote.New(remoteConfig)
+			r, err := newRemote(remoteCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create remote: %w", err)
 			}
