@@ -37,7 +37,7 @@ type Replicator struct {
 	tables     []string
 	relations  map[uint32]*RelationInfo
 	checkpoint *Checkpoint
-	sendCh     chan any
+	events     chan Event
 
 	inserts int64
 	updates int64
@@ -45,13 +45,13 @@ type Replicator struct {
 	inTx    bool // whether the target connection is inside a transaction
 }
 
-func NewReplicator(cfg *Config, tables []string, checkpoint *Checkpoint, sendCh chan any) *Replicator {
+func NewReplicator(cfg *Config, tables []string, checkpoint *Checkpoint, events chan Event) *Replicator {
 	return &Replicator{
 		config:     cfg,
 		tables:     tables,
 		checkpoint: checkpoint,
 		relations:  make(map[uint32]*RelationInfo),
-		sendCh:     sendCh,
+		events:     events,
 	}
 }
 
@@ -179,7 +179,7 @@ func (r *Replicator) StartStreaming(ctx context.Context) error {
 			return err
 		}
 
-		r.trySend(PhaseMsg{Phase: fmt.Sprintf("reconnecting (attempt %d/%d)", retries, maxRetries)})
+		r.trySend(PhaseEvent{Phase: fmt.Sprintf("reconnecting (attempt %d/%d)", retries, maxRetries)})
 
 		// Rollback any in-flight target transaction.
 		r.rollbackTarget(ctx)
@@ -201,7 +201,7 @@ func (r *Replicator) StartStreaming(ctx context.Context) error {
 			continue // will retry
 		}
 
-		r.trySend(PhaseMsg{Phase: "streaming"})
+		r.trySend(PhaseEvent{Phase: PhaseStreaming})
 	}
 }
 
@@ -378,7 +378,7 @@ func (r *Replicator) handleWALData(ctx context.Context, xld pglogrepl.XLogData) 
 		}
 		r.inTx = false
 
-		r.trySend(StreamingUpdateMsg{
+		r.trySend(StreamingEvent{
 			LSN:     pglogrepl.LSN(m.CommitLSN).String(),
 			Inserts: r.inserts,
 			Updates: r.updates,
@@ -566,9 +566,9 @@ func (r *Replicator) Close() error {
 	return nil
 }
 
-func (r *Replicator) trySend(msg any) {
+func (r *Replicator) trySend(e Event) {
 	select {
-	case r.sendCh <- msg:
+	case r.events <- e:
 	default:
 	}
 }

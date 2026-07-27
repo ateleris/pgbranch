@@ -3,11 +3,13 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os/signal"
-	"syscall"
+	"os"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/le-vlad/pgbranch/pkg/migrate"
-	"github.com/spf13/cobra"
 )
 
 func newMigrateCmd() *cobra.Command {
@@ -55,11 +57,12 @@ Requirements:
 				mode = migrate.RunSnapshotOnly
 			}
 
-			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-			defer stop()
-
 			migrator := migrate.NewMigrator(cfg, keepSlot, mode)
-			return migrator.Run(ctx)
+
+			if term.IsTerminal(int(os.Stdout.Fd())) {
+				return runMigrationWithTUI(cmd.Context(), migrator)
+			}
+			return runMigrationWithPlainLog(cmd.Context(), migrator)
 		},
 	}
 
@@ -70,4 +73,55 @@ Requirements:
 	_ = cmd.MarkFlagRequired("config")
 
 	return cmd
+}
+
+// runMigrationWithTUI renders migration progress in a full screen bubbletea
+// program. Deciding to take over the terminal is a CLI concern, which is why
+// it lives here rather than in pkg/migrate.
+func runMigrationWithTUI(ctx context.Context, migrator *migrate.Migrator) error {
+	program := tea.NewProgram(newTUIModel(), tea.WithAltScreen())
+
+	go func() {
+		program.Send(migrationDoneMsg{Err: migrator.Run(ctx)})
+	}()
+
+	go func() {
+		for event := range migrator.Events() {
+			program.Send(event)
+		}
+	}()
+
+	finalModel, err := program.Run()
+	if err != nil {
+		return fmt.Errorf("TUI error: %w", err)
+	}
+
+	if m, ok := finalModel.(tuiModel); ok && m.err != nil {
+		return m.err
+	}
+
+	return nil
+}
+
+// runMigrationWithPlainLog prints migration progress as plain log lines, for
+// when stdout is not a terminal.
+func runMigrationWithPlainLog(ctx context.Context, migrator *migrate.Migrator) error {
+	logger := newPlainLogger()
+
+	go func() {
+		for event := range migrator.Events() {
+			switch e := event.(type) {
+			case migrate.PhaseEvent:
+				logger.SetPhase(e.Phase)
+			case migrate.TableInitEvent:
+				logger.TableInit(e.Table, e.TotalRows)
+			case migrate.TableDoneEvent:
+				logger.TableDone(e.Table)
+			case migrate.StreamingEvent:
+				logger.StreamingUpdate(e.LSN, e.Inserts, e.Updates, e.Deletes)
+			}
+		}
+	}()
+
+	return migrator.Run(ctx)
 }

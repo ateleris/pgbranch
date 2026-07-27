@@ -25,6 +25,7 @@ Git branching for your PostgreSQL database.
 - [Continuous Migration](#continuous-migration)
 - [Automatic Branch Switching](#automatic-branch-switching)
 - [Remotes](#remotes)
+- [Using pgbranch as a Library](#using-pgbranch-as-a-library)
 - [Caveats](#caveats)
 
 ## The Problem
@@ -394,6 +395,114 @@ pgbranch remote add origin s3://bucket/prefix --no-credentials
 ```
 
 Then set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in your environment.
+
+## Using pgbranch as a Library
+
+The core packages live under `pkg/` and can be imported directly, so you can
+drive branching and migration from your own Go program instead of shelling out
+to the CLI.
+
+```bash
+go get github.com/le-vlad/pgbranch
+```
+
+| Package | What it does |
+| --- | --- |
+| `pkg/core` | `Brancher`: create, checkout, update, delete and prune branches |
+| `pkg/config` | Workspace configuration and connection settings |
+| `pkg/storage` | Branch metadata |
+| `pkg/postgres` | PostgreSQL client for snapshot and template database operations |
+| `pkg/schema` | Schema extraction, diffing and applying (pure Go, no `pg_dump`) |
+| `pkg/remote` | S3, R2, GCS and filesystem backends |
+| `pkg/archive` | Portable snapshot packaging |
+| `pkg/migrate` | Continuous PG-to-PG migration over logical replication |
+
+`internal/cli`, `internal/credentials` and `internal/testutil` stay private.
+
+One deployment note: branching, schema work and migration run entirely
+in-process, but **archiving (push/pull) shells out to `pg_dump` and
+`pg_restore`**, so those binaries must be on `PATH` and version-compatible with
+your server if you use `pkg/archive`.
+
+### Branching
+
+Every workspace directory is explicit, so one process can manage many of them,
+and every operation takes a `context.Context`:
+
+```go
+brancher, err := core.Open("/srv/tenants/acme")
+if errors.Is(err, config.ErrNotInitialized) {
+    err = core.Initialize("/srv/tenants/acme", &config.Config{
+        Database: "acme_dev",
+        Host:     "localhost",
+        Port:     5432,
+        User:     "postgres",
+    })
+}
+if err != nil {
+    return err
+}
+
+if err := brancher.CreateBranch(ctx, "feature-x"); err != nil {
+    return err
+}
+if err := brancher.Checkout(ctx, "feature-x"); err != nil {
+    return err
+}
+```
+
+Failures use sentinel errors, so you can branch on them with `errors.Is`:
+`config.ErrNotInitialized`, `core.ErrBranchNotFound`, `core.ErrBranchExists`
+and `core.ErrCurrentBranch`.
+
+### Migration progress
+
+`pkg/migrate` reports progress as typed events and never writes to stdout or
+takes over the terminal. The CLI's progress bars are just one consumer of the
+same channel:
+
+```go
+migrator := migrate.NewMigrator(cfg, false, migrate.RunFull)
+
+go func() {
+    for event := range migrator.Events() {
+        switch e := event.(type) {
+        case migrate.PhaseEvent:
+            log.Println("phase:", e.Phase)
+        case migrate.TableDoneEvent:
+            log.Println("done:", e.Table)
+        case migrate.StreamingEvent:
+            log.Printf("lsn %s: +%d ~%d -%d", e.LSN, e.Inserts, e.Updates, e.Deletes)
+        }
+    }
+}()
+
+err := migrator.Run(ctx)
+```
+
+Events are dropped rather than blocking the migration if you fall behind, so
+ignoring `Events()` entirely is safe.
+
+### Remote credentials
+
+The library never reads an OS keyring and never prompts. Supply credentials
+through a provider so they come from wherever your application keeps them:
+
+```go
+cfg, _ := remote.ParseURL("origin", "s3://my-bucket/pgbranch")
+
+cfg.Credentials = remote.StaticCredentials{
+    AccessKey: key,
+    SecretKey: secret,
+}
+
+r, err := remote.New(cfg)
+```
+
+If no provider is set, only the `access_key` and `secret_key` options are read,
+and empty credentials fall through to the backend SDK's own default chain. The
+CLI installs its own provider for the keyring-encrypted and environment-variable
+behavior described under [Credentials](#credentials).
 
 ## Caveats
 
