@@ -455,6 +455,21 @@ Failures use sentinel errors, so you can branch on them with `errors.Is`:
 `config.ErrNotInitialized`, `core.ErrBranchNotFound`, `core.ErrBranchExists`
 and `core.ErrCurrentBranch`.
 
+Branch failures also carry the branch name, so you never have to parse a
+message to find out which one failed:
+
+```go
+err := brancher.DeleteBranch(ctx, "main", false)
+
+var branchErr *core.BranchError
+if errors.As(err, &branchErr) && errors.Is(err, core.ErrCurrentBranch) {
+    log.Printf("%s is checked out", branchErr.Name)
+}
+```
+
+These messages name no command line flags, so an embedded pgbranch never tells
+your users to "use `--force`". The CLI adds that guidance in its own layer.
+
 ### Migration progress
 
 `pkg/migrate` reports progress as typed events and never writes to stdout or
