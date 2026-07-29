@@ -25,6 +25,52 @@ var (
 	ErrCurrentBranch = errors.New("cannot delete the current branch")
 )
 
+// BranchError reports a failed operation on a named branch. Test the cause
+// with errors.Is against the sentinels above, or recover the branch name with
+// errors.As:
+//
+//	var be *core.BranchError
+//	if errors.As(err, &be) { log.Println(be.Name) }
+//
+// The message deliberately carries no guidance about command line flags, so
+// that a caller embedding pgbranch is not told to "use --force".
+type BranchError struct {
+	// Name is the branch the operation was attempted on.
+	Name string
+	// Err is the sentinel describing what went wrong.
+	Err error
+
+	msg string
+}
+
+func (e *BranchError) Error() string { return e.msg }
+
+func (e *BranchError) Unwrap() error { return e.Err }
+
+func branchNotFound(name string) error {
+	return &BranchError{
+		Name: name,
+		Err:  ErrBranchNotFound,
+		msg:  fmt.Sprintf("branch '%s' does not exist", name),
+	}
+}
+
+func branchExists(name string) error {
+	return &BranchError{
+		Name: name,
+		Err:  ErrBranchExists,
+		msg:  fmt.Sprintf("branch '%s' already exists", name),
+	}
+}
+
+func currentBranchError(name string) error {
+	return &BranchError{
+		Name: name,
+		Err:  ErrCurrentBranch,
+		msg:  fmt.Sprintf("cannot delete the current branch '%s'", name),
+	}
+}
+
 // Brancher manages database branches, coordinating between the PostgreSQL
 // client, configuration, and metadata storage.
 type Brancher struct {
@@ -112,7 +158,7 @@ func Initialize(dir string, cfg *config.Config) error {
 // The branch is stored as a PostgreSQL template database.
 func (b *Brancher) CreateBranch(ctx context.Context, name string) error {
 	if b.Metadata.BranchExists(name) {
-		return fmt.Errorf("%w: '%s'", ErrBranchExists, name)
+		return branchExists(name)
 	}
 
 	snapshotDBName := storage.SnapshotDBName(b.Config.Database, name)
@@ -138,7 +184,7 @@ func (b *Brancher) CreateBranch(ctx context.Context, name string) error {
 func (b *Brancher) Checkout(ctx context.Context, name string) error {
 	branch, ok := b.Metadata.GetBranch(name)
 	if !ok {
-		return fmt.Errorf("%w: '%s'", ErrBranchNotFound, name)
+		return branchNotFound(name)
 	}
 
 	if b.Metadata.CurrentBranch != "" && b.Metadata.CurrentBranch != name {
@@ -170,12 +216,12 @@ func (b *Brancher) Checkout(ctx context.Context, name string) error {
 // Returns an error if trying to delete the current branch without force.
 func (b *Brancher) DeleteBranch(ctx context.Context, name string, force bool) error {
 	if name == b.Metadata.CurrentBranch && !force {
-		return fmt.Errorf("%w '%s': force the deletion to override", ErrCurrentBranch, name)
+		return currentBranchError(name)
 	}
 
 	branch, ok := b.Metadata.GetBranch(name)
 	if !ok {
-		return fmt.Errorf("%w: '%s'", ErrBranchNotFound, name)
+		return branchNotFound(name)
 	}
 
 	if err := b.Client.DeleteSnapshot(ctx, branch.Snapshot); err != nil {
@@ -238,7 +284,7 @@ func (b *Brancher) Status() (currentBranch string, branchCount int) {
 func (b *Brancher) UpdateBranch(ctx context.Context, name string) error {
 	branch, ok := b.Metadata.GetBranch(name)
 	if !ok {
-		return fmt.Errorf("%w: '%s'", ErrBranchNotFound, name)
+		return branchNotFound(name)
 	}
 
 	snapshotDBName := branch.Snapshot

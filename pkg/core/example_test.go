@@ -85,3 +85,19 @@ func ExampleNew() {
 		log.Fatal(err)
 	}
 }
+
+// Recovering the branch name from a failure, so a caller can build its own
+// message without parsing the error text.
+func ExampleBranchError() {
+	brancher, err := core.Open("/srv/tenants/acme")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = brancher.DeleteBranch(context.Background(), "main", false)
+
+	var branchErr *core.BranchError
+	if errors.As(err, &branchErr) && errors.Is(err, core.ErrCurrentBranch) {
+		fmt.Printf("%s is checked out; pass force to delete it\n", branchErr.Name)
+	}
+}

@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var deleteForce bool
@@ -37,6 +40,12 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
 	if err := brancher.DeleteBranch(cmd.Context(), name, deleteForce); err != nil {
+		// pkg/core reports the cause without naming a CLI flag; point the
+		// user at --force here, where the flag actually exists.
+		var branchErr *core.BranchError
+		if errors.As(err, &branchErr) && errors.Is(err, core.ErrCurrentBranch) {
+			return fmt.Errorf("cannot delete current branch '%s'. Use --force to override", branchErr.Name)
+		}
 		return err
 	}
 

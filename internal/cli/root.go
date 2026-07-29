@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -55,7 +56,12 @@ func openBrancher() (*core.Brancher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return core.Open(dir)
+
+	brancher, err := core.Open(dir)
+	if err != nil {
+		return nil, notInitializedHint(err)
+	}
+	return brancher, nil
 }
 
 // loadConfig loads the configuration from the current working directory.
@@ -64,7 +70,22 @@ func loadConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return config.Load(dir)
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return nil, notInitializedHint(err)
+	}
+	return cfg, nil
+}
+
+// notInitializedHint replaces the library's "not initialized in <dir>" error
+// with the CLI's own wording, which names the command to run. pkg/config has
+// no business telling an embedder to run 'pgbranch init'.
+func notInitializedHint(err error) error {
+	if errors.Is(err, config.ErrNotInitialized) {
+		return errors.New("pgbranch not initialized. Run 'pgbranch init' first")
+	}
+	return err
 }
 
 func init() {
