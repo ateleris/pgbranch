@@ -51,39 +51,37 @@ func (b *Branch) DaysSinceLastAccess() int {
 
 // Metadata stores information about all branches and the current branch state.
 type Metadata struct {
+	// Root is the workspace directory that holds the .pgbranch directory.
+	// It is set by LoadMetadata and used by Save; it is never serialized.
+	Root string `json:"-"`
+
 	CurrentBranch string             `json:"current_branch"`
 	Branches      map[string]*Branch `json:"branches"`
 }
 
-// NewMetadata creates a new empty Metadata instance.
-func NewMetadata() *Metadata {
+// NewMetadata creates a new empty Metadata instance rooted at the given
+// workspace directory.
+func NewMetadata(dir string) *Metadata {
 	return &Metadata{
+		Root:          dir,
 		CurrentBranch: "",
 		Branches:      make(map[string]*Branch),
 	}
 }
 
-// GetMetadataPath returns the absolute path to the metadata file.
-func GetMetadataPath() (string, error) {
-	rootDir, err := config.GetRootDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(rootDir, MetadataFileName), nil
+// MetadataPath returns the path to the metadata file inside the given
+// workspace directory.
+func MetadataPath(dir string) string {
+	return filepath.Join(config.RootDir(dir), MetadataFileName)
 }
 
-// LoadMetadata reads and parses the metadata file. If the file doesn't exist,
-// returns a new empty Metadata instance.
-func LoadMetadata() (*Metadata, error) {
-	metadataPath, err := GetMetadataPath()
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := os.ReadFile(metadataPath)
+// LoadMetadata reads and parses the metadata file from the given workspace
+// directory. If the file doesn't exist, returns a new empty Metadata instance.
+func LoadMetadata(dir string) (*Metadata, error) {
+	data, err := os.ReadFile(MetadataPath(dir))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return NewMetadata(), nil
+			return NewMetadata(dir), nil
 		}
 		return nil, fmt.Errorf("failed to read metadata file: %w", err)
 	}
@@ -92,6 +90,7 @@ func LoadMetadata() (*Metadata, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, fmt.Errorf("failed to parse metadata file: %w", err)
 	}
+	meta.Root = dir
 
 	if meta.Branches == nil {
 		meta.Branches = make(map[string]*Branch)
@@ -100,11 +99,10 @@ func LoadMetadata() (*Metadata, error) {
 	return &meta, nil
 }
 
-// Save writes the metadata to the metadata file.
+// Save writes the metadata to the metadata file under Root.
 func (m *Metadata) Save() error {
-	metadataPath, err := GetMetadataPath()
-	if err != nil {
-		return err
+	if m.Root == "" {
+		return fmt.Errorf("metadata Root is not set")
 	}
 
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -112,7 +110,7 @@ func (m *Metadata) Save() error {
 		return fmt.Errorf("failed to serialize metadata: %w", err)
 	}
 
-	if err := os.WriteFile(metadataPath, data, 0644); err != nil {
+	if err := os.WriteFile(MetadataPath(m.Root), data, 0644); err != nil {
 		return fmt.Errorf("failed to write metadata file: %w", err)
 	}
 

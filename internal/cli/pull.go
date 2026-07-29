@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/le-vlad/pgbranch/internal/archive"
-	"github.com/le-vlad/pgbranch/internal/core"
-	"github.com/le-vlad/pgbranch/internal/remote"
-	"github.com/le-vlad/pgbranch/internal/storage"
+	"github.com/le-vlad/pgbranch/pkg/archive"
+	"github.com/le-vlad/pgbranch/pkg/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +44,7 @@ Examples:
 				targetName = localName
 			}
 
-			brancher, err := core.NewBrancher()
+			brancher, err := openBrancher()
 			if err != nil {
 				return err
 			}
@@ -60,14 +58,7 @@ Examples:
 				return err
 			}
 
-			remoteConfig := &remote.Config{
-				Name:    remoteCfg.Name,
-				Type:    remoteCfg.Type,
-				URL:     remoteCfg.URL,
-				Options: remoteCfg.Options,
-			}
-
-			r, err := remote.New(remoteConfig)
+			r, err := newRemote(remoteCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create remote: %w", err)
 			}
@@ -110,7 +101,7 @@ Examples:
 
 			if brancher.Metadata.BranchExists(targetName) && force {
 				fmt.Printf("Removing existing local branch '%s'...\n", targetName)
-				if err := brancher.DeleteBranch(targetName, true); err != nil {
+				if err := brancher.DeleteBranch(cmd.Context(), targetName, true); err != nil {
 					return fmt.Errorf("failed to delete existing branch: %w", err)
 				}
 			}
@@ -126,7 +117,7 @@ Examples:
 			brancher.Metadata.AddBranch(targetName, "", snapshotDBName)
 
 			if err := brancher.Metadata.Save(); err != nil {
-				brancher.Client.DeleteSnapshot(snapshotDBName)
+				brancher.Client.DeleteSnapshot(cmd.Context(), snapshotDBName)
 				return fmt.Errorf("failed to save metadata: %w", err)
 			}
 

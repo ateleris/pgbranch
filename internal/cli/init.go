@@ -6,9 +6,9 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/le-vlad/pgbranch/internal/core"
 	"github.com/le-vlad/pgbranch/internal/credentials"
 	"github.com/le-vlad/pgbranch/pkg/config"
+	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var (
@@ -43,11 +43,24 @@ func init() {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	if config.IsInitialized() {
+	dir, err := workspace()
+	if err != nil {
+		return err
+	}
+
+	if config.IsInitialized(dir) {
 		return fmt.Errorf("pgbranch already initialized in this directory")
 	}
 
-	if err := core.Initialize(initDatabase, initHost, initPort, initUser, initPassword); err != nil {
+	cfg := &config.Config{
+		Database: initDatabase,
+		Host:     initHost,
+		Port:     initPort,
+		User:     initUser,
+		Password: initPassword,
+	}
+
+	if err := core.Initialize(dir, cfg); err != nil {
 		return err
 	}
 

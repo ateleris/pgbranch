@@ -1,4 +1,4 @@
-package migrate
+package cli
 
 import (
 	"fmt"
@@ -9,6 +9,8 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/le-vlad/pgbranch/pkg/migrate"
 )
 
 var (
@@ -48,38 +50,15 @@ var (
 			Italic(true)
 )
 
-type PhaseMsg struct {
-	Phase string
-}
-
-type TableInitMsg struct {
-	Table     string
-	TotalRows int64
-}
-
-type TableProgressMsg struct {
-	Table     string
-	RowsDelta int64
-}
-
-type TableDoneMsg struct {
-	Table string
-}
-
-type StreamingUpdateMsg struct {
-	LSN      string
-	Inserts  int64
-	Updates  int64
-	Deletes  int64
-}
-
-type MigrationDoneMsg struct {
+// migrationDoneMsg signals the bubbletea program that the migration
+// finished. Progress itself arrives as migrate.Event values.
+type migrationDoneMsg struct {
 	Err error
 }
 
 type tickMsg time.Time
 
-type Model struct {
+type tuiModel struct {
 	phase     string
 	tables    []tableRow
 	tableIdx  map[string]int
@@ -110,12 +89,12 @@ type streamingStats struct {
 	opsPerS  float64
 }
 
-func NewModel() Model {
+func newTUIModel() tuiModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 
-	return Model{
+	return tuiModel{
 		phase:     "init",
 		tableIdx:  make(map[string]int),
 		startTime: time.Now(),
@@ -123,7 +102,7 @@ func NewModel() Model {
 	}
 }
 
-func (m Model) Init() tea.Cmd {
+func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, tickCmd())
 }
 
@@ -133,7 +112,7 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if msg.String() == "ctrl+c" || msg.String() == "q" {
@@ -144,10 +123,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 
-	case PhaseMsg:
+	case migrate.PhaseEvent:
 		m.phase = msg.Phase
 
-	case TableInitMsg:
+	case migrate.TableInitEvent:
 		bar := progress.New(
 			progress.WithDefaultGradient(),
 			progress.WithWidth(30),
@@ -162,24 +141,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		m.tableIdx[msg.Table] = idx
 
-	case TableProgressMsg:
+	case migrate.TableProgressEvent:
 		if idx, ok := m.tableIdx[msg.Table]; ok {
 			m.tables[idx].copied += msg.RowsDelta
 		}
 
-	case TableDoneMsg:
+	case migrate.TableDoneEvent:
 		if idx, ok := m.tableIdx[msg.Table]; ok {
 			m.tables[idx].done = true
 			m.tables[idx].copied = m.tables[idx].total
 		}
 
-	case StreamingUpdateMsg:
+	case migrate.StreamingEvent:
 		m.streaming.lsn = msg.LSN
 		m.streaming.inserts = msg.Inserts
 		m.streaming.updates = msg.Updates
 		m.streaming.deletes = msg.Deletes
 
-	case MigrationDoneMsg:
+	case migrationDoneMsg:
 		m.err = msg.Err
 		m.quitting = true
 		return m, tea.Quit
@@ -206,7 +185,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) View() string {
+func (m tuiModel) View() string {
 	if m.quitting && m.err != nil {
 		return fmt.Sprintf("\n  Error: %s\n\n", m.err)
 	}
@@ -247,7 +226,7 @@ func (m Model) View() string {
 	return b.String()
 }
 
-func (m Model) renderSnapshotTables() string {
+func (m tuiModel) renderSnapshotTables() string {
 	var b strings.Builder
 
 	var totalCopied int64
@@ -289,7 +268,7 @@ func (m Model) renderSnapshotTables() string {
 	return b.String()
 }
 
-func (m Model) renderStreamingStats() string {
+func (m tuiModel) renderStreamingStats() string {
 	totalOps := m.streaming.inserts + m.streaming.updates + m.streaming.deletes
 	uptime := time.Since(m.startTime).Truncate(time.Second)
 
@@ -330,26 +309,26 @@ func formatCount(n int64) string {
 	return fmt.Sprintf("%d,%03d,%03d", n/1_000_000, (n/1000)%1000, n%1000)
 }
 
-type PlainLogger struct {
+type plainLogger struct {
 	phase     string
 	startTime time.Time
 }
 
-func NewPlainLogger() *PlainLogger {
-	return &PlainLogger{startTime: time.Now()}
+func newPlainLogger() *plainLogger {
+	return &plainLogger{startTime: time.Now()}
 }
 
-func (l *PlainLogger) SetPhase(phase string) {
+func (l *plainLogger) SetPhase(phase string) {
 	l.phase = phase
 	elapsed := time.Since(l.startTime).Truncate(time.Second)
 	fmt.Printf("[%s] Phase: %s\n", elapsed, phase)
 }
 
-func (l *PlainLogger) TableInit(table string, totalRows int64) {
+func (l *plainLogger) TableInit(table string, totalRows int64) {
 	fmt.Printf("  → %s (%s rows)\n", table, formatCount(totalRows))
 }
 
-func (l *PlainLogger) TableProgress(table string, copied, total int64) {
+func (l *plainLogger) TableProgress(table string, copied, total int64) {
 	pct := float64(0)
 	if total > 0 {
 		pct = float64(copied) / float64(total) * 100
@@ -357,11 +336,11 @@ func (l *PlainLogger) TableProgress(table string, copied, total int64) {
 	fmt.Printf("  → %s: %s/%s (%.0f%%)\n", table, formatCount(copied), formatCount(total), pct)
 }
 
-func (l *PlainLogger) TableDone(table string) {
+func (l *plainLogger) TableDone(table string) {
 	fmt.Printf("  ✓ %s: done\n", table)
 }
 
-func (l *PlainLogger) StreamingUpdate(lsn string, inserts, updates, deletes int64) {
+func (l *plainLogger) StreamingUpdate(lsn string, inserts, updates, deletes int64) {
 	elapsed := time.Since(l.startTime).Truncate(time.Second)
 	fmt.Printf("[%s] LSN: %s | I:%d U:%d D:%d\n", elapsed, lsn, inserts, updates, deletes)
 }

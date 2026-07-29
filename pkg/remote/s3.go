@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	awscreds "github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/le-vlad/pgbranch/internal/credentials"
 )
 
 type s3API interface {
@@ -49,7 +48,7 @@ func NewS3Remote(cfg *Config) (Remote, error) {
 	}
 
 	ctx := context.Background()
-	awsCfg, err := loadAWSConfig(ctx, cfg.Options, remoteType)
+	awsCfg, err := loadAWSConfig(ctx, cfg, remoteType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
@@ -65,15 +64,19 @@ func NewS3Remote(cfg *Config) (Remote, error) {
 	}, nil
 }
 
-func loadAWSConfig(ctx context.Context, options map[string]string, remoteType string) (aws.Config, error) {
+func loadAWSConfig(ctx context.Context, cfg *Config, remoteType string) (aws.Config, error) {
 	var optFns []func(*config.LoadOptions) error
 
-	creds, err := credentials.GetCredentials(options, remoteType)
+	options := cfg.Options
+
+	creds, err := resolveCredentials(ctx, cfg)
 	if err != nil {
 		return aws.Config{}, fmt.Errorf("failed to get credentials: %w", err)
 	}
 
-	if creds.AccessKey != "" && creds.SecretKey != "" {
+	// Zero credentials are not an error: fall through to the AWS SDK's own
+	// default chain (environment, shared config file, instance metadata).
+	if !creds.IsZero() {
 		optFns = append(optFns, config.WithCredentialsProvider(
 			awscreds.NewStaticCredentialsProvider(creds.AccessKey, creds.SecretKey, ""),
 		))
@@ -92,7 +95,7 @@ func loadAWSConfig(ctx context.Context, options map[string]string, remoteType st
 	}
 	optFns = append(optFns, config.WithRegion(region))
 
-	cfg, err := config.LoadDefaultConfig(ctx, optFns...)
+	awsCfg, err := config.LoadDefaultConfig(ctx, optFns...)
 	if err != nil {
 		return aws.Config{}, err
 	}
@@ -102,10 +105,10 @@ func loadAWSConfig(ctx context.Context, options map[string]string, remoteType st
 		endpoint = os.Getenv("AWS_ENDPOINT_URL")
 	}
 	if endpoint != "" {
-		cfg.BaseEndpoint = aws.String(endpoint)
+		awsCfg.BaseEndpoint = aws.String(endpoint)
 	}
 
-	return cfg, nil
+	return awsCfg, nil
 }
 
 func (r *S3Remote) Name() string {

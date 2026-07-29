@@ -7,8 +7,8 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/jackc/pgx/v5"
-	"github.com/le-vlad/pgbranch/internal/core"
-	"github.com/le-vlad/pgbranch/internal/schema"
+	"github.com/le-vlad/pgbranch/pkg/core"
+	"github.com/le-vlad/pgbranch/pkg/schema"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +39,7 @@ Examples:
   pgbranch diff main feature-auth --sql`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			brancher, err := core.NewBrancher()
+			brancher, err := openBrancher()
 			if err != nil {
 				return err
 			}

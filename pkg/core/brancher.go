@@ -3,13 +3,73 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sort"
 
-	"github.com/le-vlad/pgbranch/internal/postgres"
-	"github.com/le-vlad/pgbranch/internal/storage"
 	"github.com/le-vlad/pgbranch/pkg/config"
+	"github.com/le-vlad/pgbranch/pkg/postgres"
+	"github.com/le-vlad/pgbranch/pkg/storage"
 )
+
+// Errors returned by Brancher operations. Callers should test for them with
+// errors.Is rather than matching on message text.
+var (
+	// ErrBranchNotFound is returned when the named branch does not exist.
+	ErrBranchNotFound = errors.New("branch does not exist")
+	// ErrBranchExists is returned when creating a branch whose name is taken.
+	ErrBranchExists = errors.New("branch already exists")
+	// ErrCurrentBranch is returned when deleting the checked out branch
+	// without forcing.
+	ErrCurrentBranch = errors.New("cannot delete the current branch")
+)
+
+// BranchError reports a failed operation on a named branch. Test the cause
+// with errors.Is against the sentinels above, or recover the branch name with
+// errors.As:
+//
+//	var be *core.BranchError
+//	if errors.As(err, &be) { log.Println(be.Name) }
+//
+// The message deliberately carries no guidance about command line flags, so
+// that a caller embedding pgbranch is not told to "use --force".
+type BranchError struct {
+	// Name is the branch the operation was attempted on.
+	Name string
+	// Err is the sentinel describing what went wrong.
+	Err error
+
+	msg string
+}
+
+func (e *BranchError) Error() string { return e.msg }
+
+func (e *BranchError) Unwrap() error { return e.Err }
+
+func branchNotFound(name string) error {
+	return &BranchError{
+		Name: name,
+		Err:  ErrBranchNotFound,
+		msg:  fmt.Sprintf("branch '%s' does not exist", name),
+	}
+}
+
+func branchExists(name string) error {
+	return &BranchError{
+		Name: name,
+		Err:  ErrBranchExists,
+		msg:  fmt.Sprintf("branch '%s' already exists", name),
+	}
+}
+
+func currentBranchError(name string) error {
+	return &BranchError{
+		Name: name,
+		Err:  ErrCurrentBranch,
+		msg:  fmt.Sprintf("cannot delete the current branch '%s'", name),
+	}
+}
 
 // Brancher manages database branches, coordinating between the PostgreSQL
 // client, configuration, and metadata storage.
@@ -19,66 +79,75 @@ type Brancher struct {
 	Client   *postgres.Client
 }
 
-// NewBrancher creates a new Brancher instance by loading the configuration
-// and metadata from the current directory. Returns an error if pgbranch
-// has not been initialized.
-func NewBrancher() (*Brancher, error) {
-	if !config.IsInitialized() {
-		return nil, fmt.Errorf("pgbranch not initialized. Run 'pgbranch init' first")
+// Open creates a Brancher by loading the configuration and metadata from the
+// given workspace directory. Returns an error wrapping config.ErrNotInitialized
+// if pgbranch has not been initialized there.
+func Open(dir string) (*Brancher, error) {
+	if !config.IsInitialized(dir) {
+		return nil, fmt.Errorf("%w in %s", config.ErrNotInitialized, dir)
 	}
 
-	cfg, err := config.Load()
+	cfg, err := config.Load(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	meta, err := storage.LoadMetadata()
+	meta, err := storage.LoadMetadata(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load metadata: %w", err)
 	}
 
+	return New(cfg, meta), nil
+}
+
+// New creates a Brancher from an in-memory configuration and metadata set,
+// without touching the filesystem. Persisting operations use cfg.Root and
+// meta.Root, so both must be set for Save to succeed.
+func New(cfg *config.Config, meta *storage.Metadata) *Brancher {
 	return &Brancher{
 		Config:   cfg,
 		Metadata: meta,
 		Client:   postgres.NewClient(cfg),
-	}, nil
+	}
 }
 
-// Initialize sets up pgbranch in the current directory with the given
-// database connection parameters.
-func Initialize(database, host string, port int, user, password string) error {
-	rootDir, err := config.GetRootDir()
-	if err != nil {
-		return err
+// Initialize sets up pgbranch in the given workspace directory using cfg for
+// the database connection settings. Fields left empty on cfg fall back to the
+// values from config.DefaultConfig.
+func Initialize(dir string, cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is required")
 	}
 
-	if err := config.EnsureDir(rootDir); err != nil {
+	if err := config.EnsureDir(config.RootDir(dir)); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	cfg := config.DefaultConfig()
-	cfg.Database = database
-	if host != "" {
-		cfg.Host = host
+	stored := config.DefaultConfig()
+	stored.Root = dir
+	stored.Database = cfg.Database
+	if cfg.Host != "" {
+		stored.Host = cfg.Host
 	}
-	if port != 0 {
-		cfg.Port = port
+	if cfg.Port != 0 {
+		stored.Port = cfg.Port
 	}
-	if user != "" {
-		cfg.User = user
+	if cfg.User != "" {
+		stored.User = cfg.User
 	}
-	cfg.Password = password
+	stored.Password = cfg.Password
+	stored.Remotes = cfg.Remotes
+	stored.DefaultRemote = cfg.DefaultRemote
 
-	if err := cfg.Validate(); err != nil {
+	if err := stored.Validate(); err != nil {
 		return err
 	}
 
-	if err := cfg.Save(); err != nil {
+	if err := stored.Save(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	meta := storage.NewMetadata()
-	if err := meta.Save(); err != nil {
+	if err := storage.NewMetadata(dir).Save(); err != nil {
 		return fmt.Errorf("failed to save metadata: %w", err)
 	}
 
@@ -87,14 +156,14 @@ func Initialize(database, host string, port int, user, password string) error {
 
 // CreateBranch creates a new branch from the current database state.
 // The branch is stored as a PostgreSQL template database.
-func (b *Brancher) CreateBranch(name string) error {
+func (b *Brancher) CreateBranch(ctx context.Context, name string) error {
 	if b.Metadata.BranchExists(name) {
-		return fmt.Errorf("branch '%s' already exists", name)
+		return branchExists(name)
 	}
 
 	snapshotDBName := storage.SnapshotDBName(b.Config.Database, name)
 
-	if err := b.Client.CreateSnapshot(snapshotDBName); err != nil {
+	if err := b.Client.CreateSnapshot(ctx, snapshotDBName); err != nil {
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
@@ -102,7 +171,7 @@ func (b *Brancher) CreateBranch(name string) error {
 	b.Metadata.AddBranch(name, parent, snapshotDBName)
 
 	if err := b.Metadata.Save(); err != nil {
-		b.Client.DeleteSnapshot(snapshotDBName)
+		b.Client.DeleteSnapshot(ctx, snapshotDBName)
 		return fmt.Errorf("failed to save metadata: %w", err)
 	}
 
@@ -112,21 +181,21 @@ func (b *Brancher) CreateBranch(name string) error {
 // Checkout switches to the specified branch by replacing the working database
 // with a copy of the branch's snapshot. The current branch state is saved
 // before switching.
-func (b *Brancher) Checkout(name string) error {
+func (b *Brancher) Checkout(ctx context.Context, name string) error {
 	branch, ok := b.Metadata.GetBranch(name)
 	if !ok {
-		return fmt.Errorf("branch '%s' does not exist", name)
+		return branchNotFound(name)
 	}
 
 	if b.Metadata.CurrentBranch != "" && b.Metadata.CurrentBranch != name {
-		if err := b.UpdateBranch(b.Metadata.CurrentBranch); err != nil {
+		if err := b.UpdateBranch(ctx, b.Metadata.CurrentBranch); err != nil {
 			return fmt.Errorf("failed to save current branch '%s': %w", b.Metadata.CurrentBranch, err)
 		}
 	}
 
 	snapshotDBName := branch.Snapshot
 
-	if err := b.Client.RestoreFromSnapshot(snapshotDBName); err != nil {
+	if err := b.Client.RestoreFromSnapshot(ctx, snapshotDBName); err != nil {
 		return fmt.Errorf("failed to restore branch: %w", err)
 	}
 
@@ -145,17 +214,17 @@ func (b *Brancher) Checkout(name string) error {
 
 // DeleteBranch removes a branch and its associated snapshot database.
 // Returns an error if trying to delete the current branch without force.
-func (b *Brancher) DeleteBranch(name string, force bool) error {
+func (b *Brancher) DeleteBranch(ctx context.Context, name string, force bool) error {
 	if name == b.Metadata.CurrentBranch && !force {
-		return fmt.Errorf("cannot delete current branch '%s'. Use --force to override", name)
+		return currentBranchError(name)
 	}
 
 	branch, ok := b.Metadata.GetBranch(name)
 	if !ok {
-		return fmt.Errorf("branch '%s' does not exist", name)
+		return branchNotFound(name)
 	}
 
-	if err := b.Client.DeleteSnapshot(branch.Snapshot); err != nil {
+	if err := b.Client.DeleteSnapshot(ctx, branch.Snapshot); err != nil {
 		return fmt.Errorf("failed to delete snapshot database: %w", err)
 	}
 
@@ -212,19 +281,19 @@ func (b *Brancher) Status() (currentBranch string, branchCount int) {
 
 // UpdateBranch updates an existing branch's snapshot to match the current
 // database state.
-func (b *Brancher) UpdateBranch(name string) error {
+func (b *Brancher) UpdateBranch(ctx context.Context, name string) error {
 	branch, ok := b.Metadata.GetBranch(name)
 	if !ok {
-		return fmt.Errorf("branch '%s' does not exist", name)
+		return branchNotFound(name)
 	}
 
 	snapshotDBName := branch.Snapshot
 
-	if err := b.Client.DeleteSnapshot(snapshotDBName); err != nil {
+	if err := b.Client.DeleteSnapshot(ctx, snapshotDBName); err != nil {
 		return fmt.Errorf("failed to delete old snapshot: %w", err)
 	}
 
-	if err := b.Client.CreateSnapshot(snapshotDBName); err != nil {
+	if err := b.Client.CreateSnapshot(ctx, snapshotDBName); err != nil {
 		return fmt.Errorf("failed to create updated snapshot: %w", err)
 	}
 
@@ -258,9 +327,9 @@ func (b *Brancher) GetStaleBranches(staleDays int) []BranchInfo {
 
 // PruneBranches deletes multiple branches by name, returning the list of
 // successfully deleted branches and any errors encountered.
-func (b *Brancher) PruneBranches(names []string) (deleted []string, errors []error) {
+func (b *Brancher) PruneBranches(ctx context.Context, names []string) (deleted []string, errors []error) {
 	for _, name := range names {
-		if err := b.DeleteBranch(name, true); err != nil {
+		if err := b.DeleteBranch(ctx, name, true); err != nil {
 			errors = append(errors, fmt.Errorf("failed to delete '%s': %w", name, err))
 		} else {
 			deleted = append(deleted, name)

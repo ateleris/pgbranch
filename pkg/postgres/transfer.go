@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/le-vlad/pgbranch/pkg/config"
 )
 
 // DumpOptions configures pg_dump behavior
@@ -157,20 +155,19 @@ func (c *Client) DumpSnapshotToWriter(ctx context.Context, snapshotDBName string
 }
 
 func (c *Client) RestoreSnapshotFromReader(ctx context.Context, snapshotDBName string, r io.Reader) error {
-	if err := c.CreateEmptyDatabase(snapshotDBName); err != nil {
+	if err := c.CreateEmptyDatabase(ctx, snapshotDBName); err != nil {
 		return fmt.Errorf("failed to create database for restore: %w", err)
 	}
 
 	if err := c.RestoreDatabase(ctx, snapshotDBName, r); err != nil {
-		c.DropDatabaseByName(snapshotDBName)
+		c.DropDatabaseByName(ctx, snapshotDBName)
 		return fmt.Errorf("failed to restore database: %w", err)
 	}
 
 	return nil
 }
 
-func (c *Client) CreateEmptyDatabase(dbName string) error {
-	ctx := context.Background()
+func (c *Client) CreateEmptyDatabase(ctx context.Context, dbName string) error {
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
@@ -207,14 +204,4 @@ func GetPgRestoreVersion() (string, error) {
 		return "", fmt.Errorf("failed to get pg_restore version: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
-}
-
-func DumpDatabaseToWriter(cfg *config.Config, dbName string, w io.Writer) error {
-	client := NewClient(cfg)
-	return client.DumpSnapshotToWriter(context.Background(), dbName, w)
-}
-
-func RestoreDatabaseFromReader(cfg *config.Config, dbName string, r io.Reader) error {
-	client := NewClient(cfg)
-	return client.RestoreSnapshotFromReader(context.Background(), dbName, r)
 }

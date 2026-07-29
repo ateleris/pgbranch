@@ -5,6 +5,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,9 +16,13 @@ const (
 	DirName = ".pgbranch"
 	// ConfigFileName is the name of the main configuration file.
 	ConfigFileName = "config.json"
-	// SnapshotsDir is the name of the directory containing snapshot metadata.
-	SnapshotsDir = "snapshots"
+	// SnapshotsDirName is the name of the directory containing snapshot metadata.
+	SnapshotsDirName = "snapshots"
 )
+
+// ErrNotInitialized is returned when a workspace directory has no .pgbranch
+// directory. Callers can test for it with errors.Is.
+var ErrNotInitialized = errors.New("pgbranch not initialized")
 
 // RemoteConfig holds configuration for a remote storage backend.
 type RemoteConfig struct {
@@ -37,6 +42,11 @@ type RemoteConfig struct {
 // Config holds the main configuration for pgbranch, including
 // database connection settings and remote storage configurations.
 type Config struct {
+	// Root is the workspace directory that holds the .pgbranch directory.
+	// It is set by Load and used by Save; it is never serialized. Library
+	// callers that build a Config in memory must set it before calling Save.
+	Root string `json:"-"`
+
 	Database string `json:"database"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -57,52 +67,51 @@ func DefaultConfig() *Config {
 	}
 }
 
-// GetRootDir returns the absolute path to the pgbranch configuration directory.
-func GetRootDir() (string, error) {
+// RootDir returns the path to the pgbranch configuration directory inside
+// the given workspace directory.
+func RootDir(dir string) string {
+	return filepath.Join(dir, DirName)
+}
+
+// ConfigPath returns the path to the configuration file inside the given
+// workspace directory.
+func ConfigPath(dir string) string {
+	return filepath.Join(RootDir(dir), ConfigFileName)
+}
+
+// SnapshotsDir returns the path to the snapshots directory inside the given
+// workspace directory.
+func SnapshotsDir(dir string) string {
+	return filepath.Join(RootDir(dir), SnapshotsDirName)
+}
+
+// WorkingDir returns the current working directory, the default workspace
+// for the command line client. Library callers should pass an explicit
+// directory instead of relying on process state.
+func WorkingDir() (string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
 	}
-	return filepath.Join(cwd, DirName), nil
+	return cwd, nil
 }
 
-// GetConfigPath returns the absolute path to the configuration file.
-func GetConfigPath() (string, error) {
-	rootDir, err := GetRootDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(rootDir, ConfigFileName), nil
-}
-
-// GetSnapshotsDir returns the absolute path to the snapshots directory.
-func GetSnapshotsDir() (string, error) {
-	rootDir, err := GetRootDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(rootDir, SnapshotsDir), nil
-}
-
-// IsInitialized returns true if pgbranch has been initialized in the current directory.
-func IsInitialized() bool {
-	rootDir, err := GetRootDir()
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(rootDir)
+// IsInitialized reports whether pgbranch has been initialized in the given
+// workspace directory.
+func IsInitialized(dir string) bool {
+	_, err := os.Stat(RootDir(dir))
 	return err == nil
 }
 
-// Load reads and parses the configuration file from the current directory.
-func Load() (*Config, error) {
-	configPath, err := GetConfigPath()
+// Load reads and parses the configuration file from the given workspace
+// directory. The returned Config records dir as its Root, so Save writes
+// back to the same place.
+func Load(dir string) (*Config, error) {
+	data, err := os.ReadFile(ConfigPath(dir))
 	if err != nil {
-		return nil, err
-	}
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w in %s", ErrNotInitialized, dir)
+		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
@@ -110,15 +119,15 @@ func Load() (*Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+	cfg.Root = dir
 
 	return &cfg, nil
 }
 
-// Save writes the configuration to the configuration file.
+// Save writes the configuration to the configuration file under Root.
 func (c *Config) Save() error {
-	configPath, err := GetConfigPath()
-	if err != nil {
-		return err
+	if c.Root == "" {
+		return fmt.Errorf("config Root is not set")
 	}
 
 	data, err := json.MarshalIndent(c, "", "  ")
@@ -126,7 +135,7 @@ func (c *Config) Save() error {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(ConfigPath(c.Root), data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

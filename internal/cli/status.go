@@ -5,9 +5,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-
-	"github.com/le-vlad/pgbranch/internal/core"
-	"github.com/le-vlad/pgbranch/pkg/config"
 )
 
 var statusCmd = &cobra.Command{
@@ -21,12 +18,12 @@ Example:
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	brancher, err := core.NewBrancher()
+	brancher, err := openBrancher()
 	if err != nil {
 		return err
 	}
 
-	cfg, err := config.Load()
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}

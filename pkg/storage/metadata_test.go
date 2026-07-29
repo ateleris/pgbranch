@@ -12,32 +12,19 @@ import (
 	"github.com/le-vlad/pgbranch/pkg/config"
 )
 
-func setupMetadataTestDir(t *testing.T) (string, func()) {
+// newTestWorkspace returns a temp workspace directory with an initialized
+// .pgbranch directory. No process-wide state is touched.
+func newTestWorkspace(t *testing.T) string {
 	t.Helper()
 
-	tmpDir, err := os.MkdirTemp("", "pgbranch-metadata-test-*")
-	require.NoError(t, err)
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(config.RootDir(tmpDir), 0755))
 
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-
-	err = os.Chdir(tmpDir)
-	require.NoError(t, err)
-
-	pgbranchDir := filepath.Join(tmpDir, config.DirName)
-	err = os.MkdirAll(pgbranchDir, 0755)
-	require.NoError(t, err)
-
-	cleanup := func() {
-		os.Chdir(originalDir)
-		os.RemoveAll(tmpDir)
-	}
-
-	return tmpDir, cleanup
+	return tmpDir
 }
 
 func TestNewMetadata(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 
 	assert.Empty(t, meta.CurrentBranch)
 	assert.NotNil(t, meta.Branches)
@@ -45,7 +32,7 @@ func TestNewMetadata(t *testing.T) {
 }
 
 func TestAddBranch(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 
 	branch := meta.AddBranch("feature-1", "", "feature-1.dump")
 
@@ -59,7 +46,7 @@ func TestAddBranch(t *testing.T) {
 }
 
 func TestAddBranchWithParent(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 
 	meta.AddBranch("main", "", "main.dump")
 
@@ -69,7 +56,7 @@ func TestAddBranchWithParent(t *testing.T) {
 }
 
 func TestGetBranch(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 	meta.AddBranch("feature-1", "", "feature-1.dump")
 
 	branch, ok := meta.GetBranch("feature-1")
@@ -81,7 +68,7 @@ func TestGetBranch(t *testing.T) {
 }
 
 func TestDeleteBranch(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 	meta.AddBranch("feature-1", "", "feature-1.dump")
 	meta.AddBranch("feature-2", "", "feature-2.dump")
 
@@ -96,7 +83,7 @@ func TestDeleteBranch(t *testing.T) {
 }
 
 func TestBranchExists(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 	meta.AddBranch("feature-1", "", "feature-1.dump")
 
 	assert.True(t, meta.BranchExists("feature-1"))
@@ -104,7 +91,7 @@ func TestBranchExists(t *testing.T) {
 }
 
 func TestListBranches(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 
 	branches := meta.ListBranches()
 	assert.Len(t, branches, 0)
@@ -121,7 +108,7 @@ func TestListBranches(t *testing.T) {
 }
 
 func TestSetCurrentBranch(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 	meta.AddBranch("feature-1", "", "feature-1.dump")
 
 	err := meta.SetCurrentBranch("feature-1")
@@ -138,10 +125,9 @@ func TestSetCurrentBranch(t *testing.T) {
 }
 
 func TestMetadataSaveAndLoad(t *testing.T) {
-	_, cleanup := setupMetadataTestDir(t)
-	defer cleanup()
+	dir := newTestWorkspace(t)
 
-	meta := NewMetadata()
+	meta := NewMetadata(dir)
 	meta.AddBranch("main", "", "main.dump")
 	meta.AddBranch("feature-1", "main", "feature-1.dump")
 	meta.CurrentBranch = "feature-1"
@@ -149,7 +135,7 @@ func TestMetadataSaveAndLoad(t *testing.T) {
 	err := meta.Save()
 	require.NoError(t, err)
 
-	loadedMeta, err := LoadMetadata()
+	loadedMeta, err := LoadMetadata(dir)
 	require.NoError(t, err)
 
 	assert.Equal(t, "feature-1", loadedMeta.CurrentBranch)
@@ -164,30 +150,33 @@ func TestMetadataSaveAndLoad(t *testing.T) {
 }
 
 func TestLoadMetadataCreatesNewIfNotExists(t *testing.T) {
-	_, cleanup := setupMetadataTestDir(t)
-	defer cleanup()
+	dir := newTestWorkspace(t)
 
-	meta, err := LoadMetadata()
+	meta, err := LoadMetadata(dir)
 	require.NoError(t, err)
 
+	assert.Equal(t, dir, meta.Root)
 	assert.Empty(t, meta.CurrentBranch)
 	assert.NotNil(t, meta.Branches)
 	assert.Len(t, meta.Branches, 0)
 }
 
-func TestGetMetadataPath(t *testing.T) {
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
+func TestSaveWithoutRoot(t *testing.T) {
+	meta := NewMetadata("")
 
-	metaPath, err := GetMetadataPath()
-	require.NoError(t, err)
+	err := meta.Save()
+	assert.Error(t, err)
+}
 
-	expected := filepath.Join(cwd, config.DirName, MetadataFileName)
-	assert.Equal(t, expected, metaPath)
+func TestMetadataPath(t *testing.T) {
+	dir := filepath.Join("some", "workspace")
+
+	expected := filepath.Join(dir, config.DirName, MetadataFileName)
+	assert.Equal(t, expected, MetadataPath(dir))
 }
 
 func TestGetStaleBranches(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 
 	mainBranch := meta.AddBranch("main", "", "main.dump")
 	mainBranch.CreatedAt = mainBranch.CreatedAt.AddDate(0, 0, -30)
@@ -217,7 +206,7 @@ func TestGetStaleBranches(t *testing.T) {
 }
 
 func TestGetStaleBranchesExcludesRootBranch(t *testing.T) {
-	meta := NewMetadata()
+	meta := NewMetadata("")
 
 	mainBranch := meta.AddBranch("main", "", "main.dump")
 	mainBranch.CreatedAt = mainBranch.CreatedAt.AddDate(0, 0, -100)
@@ -257,7 +246,7 @@ func TestDaysSinceLastAccess(t *testing.T) {
 
 func TestUpdateLastCheckout(t *testing.T) {
 	t.Run("updates existing branch", func(t *testing.T) {
-		meta := NewMetadata()
+		meta := NewMetadata("")
 		meta.AddBranch("feature-1", "", "feature-1.dump")
 
 		before := time.Now()
@@ -271,7 +260,7 @@ func TestUpdateLastCheckout(t *testing.T) {
 	})
 
 	t.Run("returns error for non-existent branch", func(t *testing.T) {
-		meta := NewMetadata()
+		meta := NewMetadata("")
 
 		err := meta.UpdateLastCheckout("non-existent")
 		require.Error(t, err)

@@ -5,8 +5,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-
-	"github.com/le-vlad/pgbranch/internal/core"
 )
 
 var updateCmd = &cobra.Command{
@@ -27,7 +25,7 @@ Examples:
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	brancher, err := core.NewBrancher()
+	brancher, err := openBrancher()
 	if err != nil {
 		return err
 	}
@@ -45,7 +43,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	yellow := color.New(color.FgYellow).SprintFunc()
 	fmt.Printf("%s Updating branch '%s'...\n", yellow("→"), name)
 
-	if err := brancher.UpdateBranch(name); err != nil {
+	if err := brancher.UpdateBranch(cmd.Context(), name); err != nil {
 		return err
 	}
 

@@ -11,8 +11,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/le-vlad/pgbranch/internal/postgres"
 	"github.com/le-vlad/pgbranch/pkg/config"
+	"github.com/le-vlad/pgbranch/pkg/postgres"
 )
 
 // Archive represents a pgbranch snapshot archive.

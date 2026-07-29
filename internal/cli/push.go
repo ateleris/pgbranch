@@ -5,9 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/le-vlad/pgbranch/internal/archive"
-	"github.com/le-vlad/pgbranch/internal/core"
-	"github.com/le-vlad/pgbranch/internal/remote"
+	"github.com/le-vlad/pgbranch/pkg/archive"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +40,7 @@ Examples:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			branchName := args[0]
 
-			brancher, err := core.NewBrancher()
+			brancher, err := openBrancher()
 			if err != nil {
 				return err
 			}
@@ -57,14 +55,7 @@ Examples:
 				return err
 			}
 
-			remoteConfig := &remote.Config{
-				Name:    remoteCfg.Name,
-				Type:    remoteCfg.Type,
-				URL:     remoteCfg.URL,
-				Options: remoteCfg.Options,
-			}
-
-			r, err := remote.New(remoteConfig)
+			r, err := newRemote(remoteCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create remote: %w", err)
 			}

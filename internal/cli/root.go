@@ -1,9 +1,16 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/pkg/config"
+	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var rootCmd = &cobra.Command{
@@ -29,9 +36,56 @@ Share snapshots with your team:
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
+}
+
+// workspace returns the directory the CLI operates on: the current working
+// directory. Library callers pass their workspace directory explicitly.
+func workspace() (string, error) {
+	return config.WorkingDir()
+}
+
+// openBrancher opens the pgbranch workspace in the current working directory.
+func openBrancher() (*core.Brancher, error) {
+	dir, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+
+	brancher, err := core.Open(dir)
+	if err != nil {
+		return nil, notInitializedHint(err)
+	}
+	return brancher, nil
+}
+
+// loadConfig loads the configuration from the current working directory.
+func loadConfig() (*config.Config, error) {
+	dir, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err := config.Load(dir)
+	if err != nil {
+		return nil, notInitializedHint(err)
+	}
+	return cfg, nil
+}
+
+// notInitializedHint replaces the library's "not initialized in <dir>" error
+// with the CLI's own wording, which names the command to run. pkg/config has
+// no business telling an embedder to run 'pgbranch init'.
+func notInitializedHint(err error) error {
+	if errors.Is(err, config.ErrNotInitialized) {
+		return errors.New("pgbranch not initialized. Run 'pgbranch init' first")
+	}
+	return err
 }
 
 func init() {

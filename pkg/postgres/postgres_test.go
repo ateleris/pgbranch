@@ -31,12 +31,12 @@ func TestClientIntegration(t *testing.T) {
 	client := NewClient(cfg)
 
 	t.Run("TestConnection", func(t *testing.T) {
-		err := client.TestConnection()
+		err := client.TestConnection(ctx)
 		require.NoError(t, err)
 	})
 
 	t.Run("DatabaseExists", func(t *testing.T) {
-		exists, err := client.DatabaseExists()
+		exists, err := client.DatabaseExists(ctx)
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})
@@ -51,27 +51,27 @@ func TestClientIntegration(t *testing.T) {
 		}
 		newClient := NewClient(newCfg)
 
-		exists, err := newClient.DatabaseExists()
+		exists, err := newClient.DatabaseExists(ctx)
 		require.NoError(t, err)
 		assert.False(t, exists)
 
-		err = newClient.CreateDatabase()
+		err = newClient.CreateDatabase(ctx)
 		require.NoError(t, err)
 
-		exists, err = newClient.DatabaseExists()
+		exists, err = newClient.DatabaseExists(ctx)
 		require.NoError(t, err)
 		assert.True(t, exists)
 
-		err = newClient.DropDatabase()
+		err = newClient.DropDatabase(ctx)
 		require.NoError(t, err)
 
-		exists, err = newClient.DatabaseExists()
+		exists, err = newClient.DatabaseExists(ctx)
 		require.NoError(t, err)
 		assert.False(t, exists)
 	})
 
 	t.Run("TerminateConnections", func(t *testing.T) {
-		err := client.TerminateConnections()
+		err := client.TerminateConnections(ctx)
 		require.NoError(t, err)
 	})
 }
@@ -107,7 +107,7 @@ func TestSnapshotAndRestoreIntegration(t *testing.T) {
 	snapshotDBName := cfg.Database + "_snapshot_test"
 
 	t.Run("CreateSnapshot", func(t *testing.T) {
-		err := client.CreateSnapshot(snapshotDBName)
+		err := client.CreateSnapshot(ctx, snapshotDBName)
 		require.NoError(t, err)
 
 		snapshotCfg := &config.Config{
@@ -118,7 +118,7 @@ func TestSnapshotAndRestoreIntegration(t *testing.T) {
 			Password: cfg.Password,
 		}
 		snapshotClient := NewClient(snapshotCfg)
-		exists, err := snapshotClient.DatabaseExists()
+		exists, err := snapshotClient.DatabaseExists(ctx)
 		require.NoError(t, err)
 		assert.True(t, exists)
 	})
@@ -135,7 +135,7 @@ func TestSnapshotAndRestoreIntegration(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 3, count)
 
-		err = client.RestoreFromSnapshot(snapshotDBName)
+		err = client.RestoreFromSnapshot(ctx, snapshotDBName)
 		require.NoError(t, err)
 
 		count, err = countRows(ctx, cfg, "users")
@@ -152,7 +152,7 @@ func TestSnapshotAndRestoreIntegration(t *testing.T) {
 	})
 
 	t.Run("DeleteSnapshot", func(t *testing.T) {
-		err := client.DeleteSnapshot(snapshotDBName)
+		err := client.DeleteSnapshot(ctx, snapshotDBName)
 		require.NoError(t, err)
 
 		snapshotCfg := &config.Config{
@@ -163,13 +163,13 @@ func TestSnapshotAndRestoreIntegration(t *testing.T) {
 			Password: cfg.Password,
 		}
 		snapshotClient := NewClient(snapshotCfg)
-		exists, err := snapshotClient.DatabaseExists()
+		exists, err := snapshotClient.DatabaseExists(ctx)
 		require.NoError(t, err)
 		assert.False(t, exists)
 	})
 }
 
-func TestCreateSnapshotDBAndRestoreFromSnapshotDB(t *testing.T) {
+func TestSnapshotCreateRestoreDelete(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -197,7 +197,7 @@ func TestCreateSnapshotDBAndRestoreFromSnapshotDB(t *testing.T) {
 
 	snapshotDBName := cfg.Database + "_helper_test_snapshot"
 
-	err = CreateSnapshotDB(cfg, snapshotDBName)
+	err = NewClient(cfg).CreateSnapshot(ctx, snapshotDBName)
 	require.NoError(t, err)
 
 	snapshotCfg := &config.Config{
@@ -208,7 +208,7 @@ func TestCreateSnapshotDBAndRestoreFromSnapshotDB(t *testing.T) {
 		Password: cfg.Password,
 	}
 	snapshotClient := NewClient(snapshotCfg)
-	exists, err := snapshotClient.DatabaseExists()
+	exists, err := snapshotClient.DatabaseExists(ctx)
 	require.NoError(t, err)
 	assert.True(t, exists)
 
@@ -219,14 +219,14 @@ func TestCreateSnapshotDBAndRestoreFromSnapshotDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
 
-	err = RestoreFromSnapshotDB(cfg, snapshotDBName)
+	err = NewClient(cfg).RestoreFromSnapshot(ctx, snapshotDBName)
 	require.NoError(t, err)
 
 	count, err = countRows(ctx, cfg, "products")
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
 
-	err = DeleteSnapshotDB(cfg, snapshotDBName)
+	err = NewClient(cfg).DeleteSnapshot(ctx, snapshotDBName)
 	require.NoError(t, err)
 }
 

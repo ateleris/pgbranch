@@ -41,8 +41,7 @@ func (c *Client) connectAdmin(ctx context.Context) (*pgx.Conn, error) {
 }
 
 // DatabaseExists checks if the configured database exists.
-func (c *Client) DatabaseExists() (bool, error) {
-	ctx := context.Background()
+func (c *Client) DatabaseExists(ctx context.Context) (bool, error) {
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to check database existence: %w", err)
@@ -62,8 +61,7 @@ func (c *Client) DatabaseExists() (bool, error) {
 }
 
 // CreateDatabase creates the configured database.
-func (c *Client) CreateDatabase() error {
-	ctx := context.Background()
+func (c *Client) CreateDatabase(ctx context.Context) error {
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create database: %w", err)
@@ -78,8 +76,7 @@ func (c *Client) CreateDatabase() error {
 }
 
 // DropDatabase drops the configured database if it exists.
-func (c *Client) DropDatabase() error {
-	ctx := context.Background()
+func (c *Client) DropDatabase(ctx context.Context) error {
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to drop database: %w", err)
@@ -94,13 +91,12 @@ func (c *Client) DropDatabase() error {
 }
 
 // TerminateConnections terminates all connections to the configured database.
-func (c *Client) TerminateConnections() error {
-	return c.TerminateConnectionsTo(c.Config.Database)
+func (c *Client) TerminateConnections(ctx context.Context) error {
+	return c.TerminateConnectionsTo(ctx, c.Config.Database)
 }
 
 // TestConnection verifies that a connection can be established to PostgreSQL.
-func (c *Client) TestConnection() error {
-	ctx := context.Background()
+func (c *Client) TestConnection(ctx context.Context) error {
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to PostgreSQL: %w", err)
@@ -116,10 +112,9 @@ func (c *Client) TestConnection() error {
 
 // CreateDatabaseFromTemplate creates a new database using the specified
 // template database.
-func (c *Client) CreateDatabaseFromTemplate(templateDB, newDB string) error {
-	ctx := context.Background()
+func (c *Client) CreateDatabaseFromTemplate(ctx context.Context, templateDB, newDB string) error {
 
-	c.TerminateConnectionsTo(templateDB)
+	c.TerminateConnectionsTo(ctx, templateDB)
 
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {
@@ -139,8 +134,7 @@ func (c *Client) CreateDatabaseFromTemplate(templateDB, newDB string) error {
 }
 
 // TerminateConnectionsTo terminates all connections to the specified database.
-func (c *Client) TerminateConnectionsTo(dbName string) error {
-	ctx := context.Background()
+func (c *Client) TerminateConnectionsTo(ctx context.Context, dbName string) error {
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {
 		return nil
@@ -157,10 +151,9 @@ func (c *Client) TerminateConnectionsTo(dbName string) error {
 }
 
 // DropDatabaseByName drops the specified database if it exists.
-func (c *Client) DropDatabaseByName(dbName string) error {
-	ctx := context.Background()
+func (c *Client) DropDatabaseByName(ctx context.Context, dbName string) error {
 
-	c.TerminateConnectionsTo(dbName)
+	c.TerminateConnectionsTo(ctx, dbName)
 
 	conn, err := c.connectAdmin(ctx)
 	if err != nil {

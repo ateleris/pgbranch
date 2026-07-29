@@ -33,7 +33,7 @@ func (r *Replicator) RunSnapshot(ctx context.Context, snapshotName string) error
 		tp := r.checkpoint.Tables[table]
 
 		if tp != nil && tp.Status == TableComplete {
-			r.trySend(TableDoneMsg{Table: table})
+			r.trySend(TableDoneEvent{Table: table})
 			continue
 		}
 
@@ -54,11 +54,11 @@ func (r *Replicator) RunSnapshot(ctx context.Context, snapshotName string) error
 		tp.Status = TableInProgress
 		tp.TotalRows = totalRows
 
-		r.trySend(TableInitMsg{Table: table, TotalRows: totalRows})
+		r.trySend(TableInitEvent{Table: table, TotalRows: totalRows})
 
 		if totalRows == 0 {
 			tp.Status = TableComplete
-			r.trySend(TableDoneMsg{Table: table})
+			r.trySend(TableDoneEvent{Table: table})
 			_ = r.checkpoint.Save()
 			continue
 		}
@@ -69,7 +69,7 @@ func (r *Replicator) RunSnapshot(ctx context.Context, snapshotName string) error
 
 		tp.Status = TableComplete
 		tp.RowsCopied = totalRows
-		r.trySend(TableDoneMsg{Table: table})
+		r.trySend(TableDoneEvent{Table: table})
 		_ = r.checkpoint.Save()
 	}
 
@@ -192,7 +192,7 @@ func (r *Replicator) copyTable(ctx context.Context, tx pgx.Tx, schemaName, table
 		}
 	}
 	tp.RowsCopied = rowCount
-	r.trySend(TableProgressMsg{Table: fullTable, RowsDelta: rowCount})
+	r.trySend(TableProgressEvent{Table: fullTable, RowsDelta: rowCount})
 
 	copyInSQL := fmt.Sprintf("COPY %s (%s) FROM STDIN WITH (FORMAT text)", qualifiedName, colList)
 
