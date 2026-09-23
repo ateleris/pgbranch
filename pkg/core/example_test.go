@@ -34,7 +34,7 @@ func ExampleOpen() {
 
 	ctx := context.Background()
 
-	if err := brancher.CreateBranch(ctx, "feature-x"); err != nil {
+	if err := brancher.CreateBranch(ctx, "feature-x", ""); err != nil {
 		log.Fatal(err)
 	}
 
@@ -81,7 +81,7 @@ func ExampleNew() {
 
 	brancher := core.New(cfg, meta.Metadata)
 
-	if err := brancher.CreateBranch(context.Background(), "feature-y"); err != nil {
+	if err := brancher.CreateBranch(context.Background(), "feature-y", ""); err != nil {
 		log.Fatal(err)
 	}
 }

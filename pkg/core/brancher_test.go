@@ -84,7 +84,7 @@ func TestBrancherOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("CreateBranch", func(t *testing.T) {
-		err := brancher.CreateBranch(ctx, "main")
+		err := brancher.CreateBranch(ctx, "main", "")
 		require.NoError(t, err)
 
 		branch, ok := brancher.Metadata.GetBranch("main")
@@ -108,7 +108,7 @@ func TestBrancherOperations(t *testing.T) {
 	})
 
 	t.Run("CreateBranchDuplicate", func(t *testing.T) {
-		err := brancher.CreateBranch(ctx, "main")
+		err := brancher.CreateBranch(ctx, "main", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 	})
@@ -123,7 +123,7 @@ func TestBrancherOperations(t *testing.T) {
 		brancher.Metadata.CurrentBranch = "main"
 		brancher.Metadata.Save()
 
-		err := brancher.CreateBranch(ctx, "feature-1")
+		err := brancher.CreateBranch(ctx, "feature-1", "")
 		require.NoError(t, err)
 
 		branch, ok := brancher.Metadata.GetBranch("feature-1")
@@ -179,7 +179,7 @@ func TestCheckoutWorkflow(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -255,9 +255,9 @@ func TestDeleteBranch(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
-	err = brancher.CreateBranch(ctx, "feature-1")
+	err = brancher.CreateBranch(ctx, "feature-1", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -316,7 +316,7 @@ func TestUpdateBranch(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -437,7 +437,7 @@ func TestFullE2EWorkflow(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
@@ -477,7 +477,7 @@ func TestFullE2EWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, commentCount)
 
-	err = brancher.CreateBranch(ctx, "feature-add-comments")
+	err = brancher.CreateBranch(ctx, "feature-add-comments", "")
 	require.NoError(t, err)
 
 	err = brancher.Checkout(ctx, "main")
@@ -612,12 +612,12 @@ func TestCheckoutAutoSave(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
 	brancher.Metadata.Save()
 
-	err = brancher.CreateBranch(ctx, "feature")
+	err = brancher.CreateBranch(ctx, "feature", "")
 	require.NoError(t, err)
 
 	err = brancher.Checkout(ctx, "feature")
