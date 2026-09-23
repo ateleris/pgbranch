@@ -188,6 +188,39 @@ func TestCurrentBranch_Detached(t *testing.T) {
 	assert.Equal(t, "", branch)
 }
 
+// TestCurrentBranch_TagWithSameNameAsBranch reproduces a bug in
+// `git rev-parse --abbrev-ref HEAD`: when a tag exists with the same name
+// as the checked-out branch, it disambiguates by returning "heads/<branch>"
+// instead of just "<branch>".
+func TestCurrentBranch_TagWithSameNameAsBranch(t *testing.T) {
+	dir := newTestRepo(t)
+	runGit(t, dir, "tag", "main")
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	branch, err := repo.CurrentBranch()
+	require.NoError(t, err)
+	assert.Equal(t, "main", branch, "must return the plain branch name even when a same-named tag exists")
+}
+
+// TestLocalBranches_TagWithSameNameAsBranch reproduces a bug in
+// `%(refname:short)`: when a tag exists with the same name as a branch, the
+// for-each-ref format prints "heads/<branch>" for the branch entry to
+// disambiguate it from the tag, instead of the plain branch name.
+func TestLocalBranches_TagWithSameNameAsBranch(t *testing.T) {
+	dir := newTestRepo(t)
+	runGit(t, dir, "branch", "feature-1")
+	runGit(t, dir, "tag", "feature-1")
+
+	repo, err := Open(dir)
+	require.NoError(t, err)
+
+	branches, err := repo.LocalBranches()
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"main", "feature-1"}, branches)
+}
+
 func TestLocalBranchesAndBranchExists(t *testing.T) {
 	dir := newTestRepo(t)
 	runGit(t, dir, "branch", "feature-1")

@@ -132,21 +132,25 @@ func (r *Repo) HooksDir() (string, error) {
 }
 
 // CurrentBranch returns the short name of the currently checked out branch,
-// or "" when HEAD is detached.
+// or "" when HEAD is detached. It uses `git symbolic-ref` rather than
+// `git rev-parse --abbrev-ref HEAD`, which disambiguates a branch from a
+// same-named tag by returning "heads/<branch>" instead of the plain name.
 func (r *Repo) CurrentBranch() (string, error) {
-	out, err := r.run("rev-parse", "--abbrev-ref", "HEAD")
+	out, err := r.run("symbolic-ref", "-q", "HEAD")
 	if err != nil {
-		return "", err
-	}
-	if out == "HEAD" {
+		// A non-zero exit here means HEAD is detached (or does not point
+		// to a branch), not a real error.
 		return "", nil
 	}
-	return out, nil
+	return strings.TrimPrefix(out, "refs/heads/"), nil
 }
 
 // LocalBranches lists all local branch names.
 func (r *Repo) LocalBranches() ([]string, error) {
-	out, err := r.run("for-each-ref", "--format=%(refname:short)", "refs/heads")
+	// refname:lstrip=2 strips "refs/heads/" unconditionally, unlike
+	// refname:short, which disambiguates a branch from a same-named tag by
+	// printing "heads/<branch>" instead of the plain branch name.
+	out, err := r.run("for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads")
 	if err != nil {
 		return nil, err
 	}
