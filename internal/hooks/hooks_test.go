@@ -190,6 +190,70 @@ func TestUninstall_RemovesOnlyAppendedLines(t *testing.T) {
 	assert.Equal(t, foreign, string(content))
 }
 
+func TestInstall_UpgradesOldWholeFileGuardLine(t *testing.T) {
+	repo, _ := newTestRepo(t)
+
+	path := hookPath(t, repo)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte(oldScript()), 0o755))
+
+	installed, err := IsInstalled(repo)
+	require.NoError(t, err)
+	assert.True(t, installed, "the old guard line format must still be recognized as installed")
+
+	result, err := Install(repo)
+	require.NoError(t, err)
+	assert.Equal(t, Installed, result.Status)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, Script(), string(content), "install must upgrade the old guard line to the new one")
+}
+
+func TestInstall_UpgradesOldAppendedGuardLine(t *testing.T) {
+	repo, _ := newTestRepo(t)
+
+	path := hookPath(t, repo)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	foreign := "#!/bin/sh\necho custom hook\n" + oldAppendedBlock()
+	require.NoError(t, os.WriteFile(path, []byte(foreign), 0o755))
+
+	installed, err := IsInstalled(repo)
+	require.NoError(t, err)
+	assert.True(t, installed)
+
+	result, err := Install(repo)
+	require.NoError(t, err)
+	assert.Equal(t, Appended, result.Status)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), GuardLine)
+	assert.NotContains(t, string(content), oldGuardLine)
+
+	// re-install is idempotent.
+	result2, err := Install(repo)
+	require.NoError(t, err)
+	assert.Equal(t, AlreadyInstalled, result2.Status)
+}
+
+func TestUninstall_RemovesOldAppendedGuardLine(t *testing.T) {
+	repo, _ := newTestRepo(t)
+
+	path := hookPath(t, repo)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	foreign := "#!/bin/sh\necho custom hook\n"
+	require.NoError(t, os.WriteFile(path, []byte(foreign+oldAppendedBlock()), 0o755))
+
+	result, err := Uninstall(repo)
+	require.NoError(t, err)
+	assert.Equal(t, LinesRemoved, result.Status)
+
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, foreign, string(content))
+}
+
 func TestUninstall_NotInstalled(t *testing.T) {
 	repo, _ := newTestRepo(t)
 
@@ -274,4 +338,26 @@ func TestInstalledHookInvokesPgbranchSync(t *testing.T) {
 	recorded, err := os.ReadFile(argsFile)
 	require.NoError(t, err)
 	assert.Equal(t, "sync --hook "+prevSHA+" "+newSHA+" 1\n", string(recorded))
+}
+
+// TestInstalledHook_PgbranchAbsentFromPath_GitCheckoutExitsZero actually runs
+// `git checkout` with the installed hook but no pgbranch binary anywhere on
+// PATH. The old guard line ("command -v pgbranch ... && pgbranch sync ...")
+// made the hook's (and so git checkout's) exit status the exit status of
+// `command -v pgbranch`, i.e. 1, whenever pgbranch isn't installed.
+func TestInstalledHook_PgbranchAbsentFromPath_GitCheckoutExitsZero(t *testing.T) {
+	repo, dir := newTestRepo(t)
+
+	result, err := Install(repo)
+	require.NoError(t, err)
+	require.Equal(t, Installed, result.Status)
+
+	// A minimal PATH with no pgbranch binary anywhere on it.
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	cmd := exec.Command("git", "checkout", "-b", "feature")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PATH=/usr/bin:/bin")
+	out, err := cmd.CombinedOutput()
+	assert.NoError(t, err, "git checkout must exit 0 even when pgbranch is absent from PATH: %s", out)
 }

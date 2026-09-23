@@ -143,6 +143,11 @@ database -- the first one listed in `-d`/`databases`.
     --hook                   Install the post-checkout git hook
 ```
 
+`init` always snapshots the working database(s) as the baseline branch. If
+git is currently on a different branch, it also snapshots them as that
+branch and makes it current -- so pgbranch never records your working state
+under "main" while git says you're on "develop".
+
 ## Multiple Databases
 
 A workspace can manage more than one database, useful when your app is split
@@ -425,11 +430,16 @@ worktree.
 - An existing, foreign `post-checkout` hook -- pgbranch appends a guarded
   line instead of overwriting it:
   ```sh
-  command -v pgbranch >/dev/null 2>&1 && pgbranch sync --hook "$@"
+  if command -v pgbranch >/dev/null 2>&1; then pgbranch sync --hook "$@"; fi
   ```
-  This is idempotent; running install again won't duplicate the line. An
-  old-style hook from a previous version of this fork (which called
-  `pgbranch checkout` directly) is recognized and replaced.
+  This never fails the hook (and so never fails `git checkout`) even when
+  pgbranch isn't installed, and is idempotent; running install again won't
+  duplicate the line. A hook installed by an older version of pgbranch
+  (`command -v pgbranch >/dev/null 2>&1 && pgbranch sync --hook "$@"`, whose
+  exit status was `command -v pgbranch`'s -- 1 when pgbranch wasn't on
+  PATH) is recognized and upgraded in place. An old-style hook from a
+  previous version of this fork (which called `pgbranch checkout` directly)
+  is recognized and replaced.
 - `.husky/` or a `lefthook.yml`/`lefthook.yaml` present -- pgbranch assumes a
   hook manager owns `post-checkout` and doesn't touch any files. It prints
   the line to add to `.husky/post-checkout`, or the `lefthook.yml` snippet,

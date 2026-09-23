@@ -14,8 +14,17 @@ import (
 )
 
 // GuardLine is the shell snippet that invokes pgbranch when it is
-// available. It is safe to append to any existing hook script.
-const GuardLine = `command -v pgbranch >/dev/null 2>&1 && pgbranch sync --hook "$@"`
+// available. It is safe to append to any existing hook script. It never
+// exits non-zero itself (whether or not pgbranch is on PATH), so it never
+// makes `git checkout` (or whatever else runs the hook) fail.
+const GuardLine = `if command -v pgbranch >/dev/null 2>&1; then pgbranch sync --hook "$@"; fi`
+
+// oldGuardLine is the guard line pgbranch used to install. Its "&&" made the
+// hook's exit status the exit status of `command -v pgbranch`, i.e. 1,
+// whenever pgbranch wasn't on PATH -- which made `git checkout` fail. It is
+// still recognized for idempotent re-install/uninstall, and upgraded to
+// GuardLine on install.
+const oldGuardLine = `command -v pgbranch >/dev/null 2>&1 && pgbranch sync --hook "$@"`
 
 // marker identifies a post-checkout hook file as ours.
 const marker = "# pgbranch post-checkout hook"
@@ -25,9 +34,16 @@ const marker = "# pgbranch post-checkout hook"
 const oldForkMarker = "pgbranch checkout"
 
 // Script returns the full POSIX sh post-checkout hook script pgbranch
-// installs when no hook exists yet.
+// installs when no hook exists yet. It ends with an explicit exit 0 so the
+// hook never fails a git checkout, regardless of what GuardLine does.
 func Script() string {
-	return "#!/bin/sh\n" + marker + "\n" + GuardLine + "\n"
+	return "#!/bin/sh\n" + marker + "\n" + GuardLine + "\nexit 0\n"
+}
+
+// oldScript is the whole-file hook pgbranch used to install with
+// oldGuardLine, kept only to recognize and upgrade/uninstall it.
+func oldScript() string {
+	return "#!/bin/sh\n" + marker + "\n" + oldGuardLine + "\n"
 }
 
 // Status describes the outcome of an Install or Uninstall call.
@@ -107,6 +123,13 @@ func Install(repo *gitx.Repo) (Result, error) {
 		return Result{Status: Installed, Path: hookPath}, nil
 	}
 
+	if content == oldScript() {
+		if err := os.WriteFile(hookPath, []byte(Script()), 0o755); err != nil {
+			return Result{}, fmt.Errorf("upgrade old hook: %w", err)
+		}
+		return Result{Status: Installed, Path: hookPath}, nil
+	}
+
 	if strings.Contains(content, GuardLine) {
 		return Result{Status: AlreadyInstalled, Path: hookPath}, nil
 	}
@@ -114,6 +137,14 @@ func Install(repo *gitx.Repo) (Result, error) {
 	mode := os.FileMode(0o755)
 	if info, err := os.Stat(hookPath); err == nil {
 		mode = info.Mode().Perm() | 0o111
+	}
+
+	if strings.Contains(content, oldAppendedBlock()) {
+		newContent := strings.Replace(content, oldAppendedBlock(), appendedBlock(), 1)
+		if err := os.WriteFile(hookPath, []byte(newContent), mode); err != nil {
+			return Result{}, fmt.Errorf("upgrade appended hook lines: %w", err)
+		}
+		return Result{Status: Appended, Path: hookPath}, nil
 	}
 
 	newContent := content + appendedBlock()
@@ -143,7 +174,7 @@ func Uninstall(repo *gitx.Repo) (Result, error) {
 
 	content := string(existing)
 
-	if content == Script() || isOldForkHook(content) {
+	if content == Script() || content == oldScript() || isOldForkHook(content) {
 		if err := os.Remove(hookPath); err != nil {
 			return Result{}, fmt.Errorf("remove hook: %w", err)
 		}
@@ -152,6 +183,14 @@ func Uninstall(repo *gitx.Repo) (Result, error) {
 
 	if strings.Contains(content, appendedBlock()) {
 		newContent := strings.Replace(content, appendedBlock(), "", 1)
+		if err := os.WriteFile(hookPath, []byte(newContent), 0o755); err != nil {
+			return Result{}, fmt.Errorf("update hook: %w", err)
+		}
+		return Result{Status: LinesRemoved, Path: hookPath}, nil
+	}
+
+	if strings.Contains(content, oldAppendedBlock()) {
+		newContent := strings.Replace(content, oldAppendedBlock(), "", 1)
 		if err := os.WriteFile(hookPath, []byte(newContent), 0o755); err != nil {
 			return Result{}, fmt.Errorf("update hook: %w", err)
 		}
@@ -178,11 +217,16 @@ func IsInstalled(repo *gitx.Repo) (bool, error) {
 	}
 
 	s := string(content)
-	return s == Script() || isOldForkHook(s) || strings.Contains(s, GuardLine), nil
+	return s == Script() || s == oldScript() || isOldForkHook(s) ||
+		strings.Contains(s, GuardLine) || strings.Contains(s, oldGuardLine), nil
 }
 
 func appendedBlock() string {
 	return "\n# pgbranch\n" + GuardLine + "\n"
+}
+
+func oldAppendedBlock() string {
+	return "\n# pgbranch\n" + oldGuardLine + "\n"
 }
 
 func isOldForkHook(content string) bool {
