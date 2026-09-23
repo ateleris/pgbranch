@@ -50,6 +50,47 @@ func (c *Client) HasExtension(ctx context.Context, db, ext string) (bool, error)
 	return exists, nil
 }
 
+// ExtensionVersion returns the installed version string of ext in db. It
+// returns an error if the extension is not installed.
+func (c *Client) ExtensionVersion(ctx context.Context, db, ext string) (string, error) {
+	conn, err := c.connect(ctx, db)
+	if err != nil {
+		return "", fmt.Errorf("failed to get extension %s version: %w", ext, err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	var version string
+	err = conn.QueryRow(ctx,
+		"SELECT extversion FROM pg_extension WHERE extname = $1",
+		ext,
+	).Scan(&version)
+	if err != nil {
+		return "", fmt.Errorf("failed to get extension %s version: %w", ext, err)
+	}
+	return version, nil
+}
+
+// ExtensionDefaultVersion returns the version that `CREATE EXTENSION ext`
+// installs by default in db when no VERSION clause is given -- the version
+// matching the currently loaded extension library.
+func (c *Client) ExtensionDefaultVersion(ctx context.Context, db, ext string) (string, error) {
+	conn, err := c.connect(ctx, db)
+	if err != nil {
+		return "", fmt.Errorf("failed to get default version for extension %s: %w", ext, err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	var version string
+	err = conn.QueryRow(ctx,
+		"SELECT default_version FROM pg_available_extensions WHERE name = $1",
+		ext,
+	).Scan(&version)
+	if err != nil {
+		return "", fmt.Errorf("failed to get default version for extension %s: %w", ext, err)
+	}
+	return version, nil
+}
+
 // ResolveStrategy resolves StrategyAuto against db (dump if db has the
 // timescaledb extension installed, template otherwise). Any other strategy
 // is returned unchanged.

@@ -65,12 +65,19 @@ func TestCloneDatabase_TimescaleHypertable(t *testing.T) {
 		FROM generate_series(1, 50) AS i;
 	`)
 
+	srcVersion, err := client.ExtensionVersion(ctx, cfg.Database, "timescaledb")
+	require.NoError(t, err)
+
 	dst := "clone_timescale_dst"
-	err := client.CloneDatabase(ctx, cfg.Database, dst, StrategyAuto)
+	err = client.CloneDatabase(ctx, cfg.Database, dst, StrategyAuto)
 	require.NoError(t, err)
 	defer func() { _ = client.DropDatabaseByName(ctx, dst) }()
 
 	assert.Equal(t, 50, mustCountRows(t, ctx, cfg, dst, "metrics"))
+
+	dstVersion, err := client.ExtensionVersion(ctx, dst, "timescaledb")
+	require.NoError(t, err)
+	assert.Equal(t, srcVersion, dstVersion, "clone must reproduce the source's timescaledb version")
 
 	conn, err := pgx.Connect(ctx, cfg.ConnectionURLForDB(dst))
 	require.NoError(t, err)
@@ -82,4 +89,58 @@ func TestCloneDatabase_TimescaleHypertable(t *testing.T) {
 	).Scan(&isHypertable)
 	require.NoError(t, err)
 	assert.True(t, isHypertable, "metrics should still be a hypertable after clone")
+}
+
+// TestCloneDatabase_TimescaleStaleExtensionVersion verifies that cloning a
+// database whose installed timescaledb version is older than the version
+// the server currently loads by default fails with a clear, actionable
+// error, instead of either:
+//   - silently creating the destination's extension at the newest version
+//     (the previous behavior) while copying over data shaped for the older
+//     version, which TimescaleDB is not guaranteed to tolerate, or
+//   - pinning the destination to the stale version via a VERSION clause,
+//     which (verified against a real timescaledb container) makes
+//     TimescaleDB's own timescaledb_post_restore() fail with an opaque
+//     "catalog version mismatch" error, because its restore hooks require
+//     the extension to already be at the version the loaded library
+//     expects.
+//
+// The correct fix is to detect the mismatch up front and tell the user to
+// run `ALTER EXTENSION timescaledb UPDATE` on the source first.
+func TestCloneDatabase_TimescaleStaleExtensionVersion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	ctx := context.Background()
+
+	cfg := timescaleConfig(t, ctx)
+	client := NewClient(cfg)
+
+	conn, err := pgx.Connect(ctx, cfg.ConnectionURLForDB(cfg.Database))
+	require.NoError(t, err)
+	var defaultVersion string
+	err = conn.QueryRow(ctx,
+		"SELECT default_version FROM pg_available_extensions WHERE name = 'timescaledb'",
+	).Scan(&defaultVersion)
+	require.NoError(t, err)
+	var olderVersion string
+	err = conn.QueryRow(ctx,
+		"SELECT version FROM pg_available_extension_versions WHERE name = 'timescaledb' AND version <> $1 ORDER BY version LIMIT 1",
+		defaultVersion,
+	).Scan(&olderVersion)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close(ctx))
+	require.NotEqual(t, defaultVersion, olderVersion)
+
+	mustExecSQL(t, ctx, cfg, cfg.Database, "DROP EXTENSION IF EXISTS timescaledb; CREATE EXTENSION timescaledb VERSION '"+olderVersion+"'")
+
+	err = client.CloneDatabase(ctx, cfg.Database, "clone_timescale_stale_dst", StrategyAuto)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), olderVersion)
+	assert.Contains(t, err.Error(), defaultVersion)
+	assert.Contains(t, err.Error(), "ALTER EXTENSION")
+
+	exists, err := client.Exists(ctx, "clone_timescale_stale_dst")
+	require.NoError(t, err)
+	assert.False(t, exists, "no destination database should be left behind after the guard fails")
 }

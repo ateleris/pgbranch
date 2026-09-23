@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 )
+
+// quoteLiteral quotes s as a Postgres string literal (as opposed to
+// pgx.Identifier{...}.Sanitize(), which quotes an identifier).
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
 
 // checkDumpToolsAvailable verifies pg_dump and pg_restore are on PATH,
 // returning an error with an install hint if not.
@@ -57,22 +64,61 @@ func (c *Client) cloneDump(ctx context.Context, src, dst string) error {
 	}
 
 	if hasTimescale {
-		if err := c.execOnDB(ctx, dst, "CREATE EXTENSION IF NOT EXISTS timescaledb"); err != nil {
+		version, err := c.ExtensionVersion(ctx, src, "timescaledb")
+		if err != nil {
+			return fmt.Errorf("failed to determine timescaledb version: %w", err)
+		}
+
+		defaultVersion, err := c.ExtensionDefaultVersion(ctx, src, "timescaledb")
+		if err != nil {
+			return fmt.Errorf("failed to determine the server's default timescaledb version: %w", err)
+		}
+
+		// CREATE EXTENSION IF NOT EXISTS without VERSION installs the
+		// server's current default version, which can diverge from the
+		// source's installed version after a timescaledb package upgrade
+		// that hasn't been followed by `ALTER EXTENSION timescaledb
+		// UPDATE` on src. Restoring src's data (dumped from its actual,
+		// stale-versioned catalog) into a destination created at a
+		// *different* version is not safe: verified against a real
+		// container, TimescaleDB's own restore hooks and/or the dumped
+		// data's column layout do not tolerate the mismatch, so fail
+		// loudly up front instead of restoring inconsistent or incomplete
+		// data.
+		if version != defaultVersion {
+			return fmt.Errorf(
+				"source database %q has timescaledb extension version %s installed, but this server's "+
+					"current default version is %s; run `ALTER EXTENSION timescaledb UPDATE` on it before "+
+					"cloning (a stale extension version cannot be safely dumped and restored)",
+				src, version, defaultVersion,
+			)
+		}
+
+		createSQL := fmt.Sprintf("CREATE EXTENSION IF NOT EXISTS timescaledb VERSION %s", quoteLiteral(version))
+		if err := c.execOnDB(ctx, dst, createSQL); err != nil {
 			return fmt.Errorf("failed to create timescaledb extension: %w", err)
 		}
 		if err := c.execOnDB(ctx, dst, "SELECT timescaledb_pre_restore()"); err != nil {
 			return fmt.Errorf("failed to run timescaledb_pre_restore: %w", err)
 		}
-		// timescaledb_post_restore must run whether or not the restore
-		// itself succeeds, otherwise dst is left with timescaledb.restoring
-		// permanently set.
-		defer func() {
-			_ = c.execOnDB(ctx, dst, "SELECT timescaledb_post_restore()")
-		}()
 	}
 
-	if err := c.streamDumpRestore(ctx, src, dst); err != nil {
-		return err
+	restoreErr := c.streamDumpRestore(ctx, src, dst)
+
+	if hasTimescale {
+		// timescaledb_post_restore must run whether or not the restore
+		// itself succeeded, otherwise dst is left with
+		// timescaledb.restoring permanently set. Its error is surfaced
+		// when the restore otherwise succeeded, since leaving that GUC set
+		// must not be silently reported as a good clone; if the restore
+		// itself already failed, that is the more useful error to return.
+		if postErr := c.execOnDB(ctx, dst, "SELECT timescaledb_post_restore()"); postErr != nil && restoreErr == nil {
+			restoreErr = fmt.Errorf("failed to run timescaledb_post_restore: %w", postErr)
+		}
+	}
+
+	if restoreErr != nil {
+		return restoreErr
 	}
 
 	srcCount, err := c.TableCount(ctx, src)
