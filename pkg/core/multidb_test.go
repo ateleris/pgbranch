@@ -18,7 +18,7 @@ func execOn(ctx context.Context, cfg *config.Config, dbName, sql string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx, sql)
 	return err
@@ -29,7 +29,7 @@ func countOn(ctx context.Context, cfg *config.Config, dbName, table string) (int
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var count int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
@@ -49,7 +49,7 @@ func TestMultiDatabaseWorkflow(t *testing.T) {
 	// strategy needs a matching server.
 	pg, err := testutil.StartPostgresContainerImage(ctx, "postgres:14-alpine")
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)

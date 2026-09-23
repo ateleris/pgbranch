@@ -210,7 +210,7 @@ func addToGitExclude(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	_, err = f.WriteString("\n.pgbranch/\n")
 	return err
