@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,7 @@ func (m *mockRows) CommandTag() pgconn.CommandTag                { return pgconn
 func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
 func (m *mockRows) RawValues() [][]byte                          { return nil }
 func (m *mockRows) Conn() *pgx.Conn                              { return nil }
+func (m *mockRows) TypeMap() *pgtype.Map                         { return pgtype.NewMap() }
 
 func (m *mockRows) Next() bool {
 	if m.index >= len(m.data) {

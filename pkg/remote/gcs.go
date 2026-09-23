@@ -102,7 +102,7 @@ func createGCSClient(ctx context.Context, options map[string]string) (*storage.C
 	}
 
 	if serviceAccountPath != "" {
-		opts = append(opts, option.WithCredentialsFile(serviceAccountPath))
+		opts = append(opts, option.WithAuthCredentialsFile(option.ServiceAccount, serviceAccountPath))
 	}
 
 	client, err := storage.NewClient(ctx, opts...)

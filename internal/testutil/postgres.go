@@ -91,7 +91,7 @@ func StartPostgresContainerImageWithArgs(ctx context.Context, image string, serv
 	return &TestPostgres{
 		Container: pgContainer,
 		Host:      host,
-		Port:      mappedPort.Int(),
+		Port:      int(mappedPort.Num()),
 		Database:  TestDBName,
 		User:      TestUser,
 		Password:  TestPassword,
