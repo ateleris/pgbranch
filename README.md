@@ -1,10 +1,9 @@
 # pgbranch
 
-[![Build Status](https://github.com/le-vlad/pgbranch/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/le-vlad/pgbranch/actions/workflows/go.yml)
-[![Latest Release](https://img.shields.io/github/v/release/le-vlad/pgbranch)](https://github.com/le-vlad/pgbranch/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/le-vlad/pgbranch)](https://goreportcard.com/report/github.com/le-vlad/pgbranch)
-[![Go Reference](https://pkg.go.dev/badge/github.com/le-vlad/pgbranch.svg)](https://pkg.go.dev/github.com/le-vlad/pgbranch)
-[![codecov](https://codecov.io/gh/le-vlad/pgbranch/branch/main/graph/badge.svg)](https://codecov.io/gh/le-vlad/pgbranch)
+[![CI](https://github.com/ateleris/pgbranch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ateleris/pgbranch/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/ateleris/pgbranch)](https://github.com/ateleris/pgbranch/releases/latest)
+
+Fork of [le-vlad/pgbranch](https://github.com/le-vlad/pgbranch) with multiple databases per repo, TimescaleDB-aware cloning and a git-hook driven workflow.
 
 <p align="center">
   <img src="img/thumb.png" alt="pgbranch" width="400">
@@ -74,9 +73,20 @@ No pg_dump. No restore. No waiting.
 
 ## Installation
 
+Download a binary for Linux, macOS or Windows from the
+[releases page](https://github.com/ateleris/pgbranch/releases/latest), or build from source:
+
 ```bash
-go install github.com/le-vlad/pgbranch/cmd/pgbranch@latest
+git clone https://github.com/ateleris/pgbranch.git
+cd pgbranch
+go install ./cmd/pgbranch
+pgbranch version
 ```
+
+The module path is still `github.com/le-vlad/pgbranch` to keep upstream merges easy, so
+`go install github.com/le-vlad/pgbranch/...@latest` installs upstream, not this fork.
+
+A container image is published to `ghcr.io/ateleris/pgbranch` for each release.
 
 ## Quick Start
 
@@ -387,7 +397,7 @@ Shows a rich TUI with per-table progress bars during the snapshot phase and live
   if any database uses (or resolves to, under `auto`) the `dump` clone
   strategy, or for `push`/`pull`.
 - `git`, if you use `pgbranch hook install` / `pgbranch sync`.
-- Go 1.21+ (for installation)
+- Go 1.26+ (only when building from source)
 
 ## What It Actually Creates
 
