@@ -37,7 +37,12 @@ Share snapshots with your team:
   pgbranch pull main`,
 }
 
-func Execute() {
+// Execute runs the CLI. info supplies the version metadata reported by
+// `pgbranch version` and `pgbranch --version`.
+func Execute(info BuildInfo) {
+	buildInfo = info
+	rootCmd.Version = resolvedVersion()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -127,6 +132,7 @@ func init() {
 	rootCmd.AddCommand(hookCmd)
 	rootCmd.AddCommand(pruneCmd)
 	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(versionCmd)
 
 	rootCmd.AddCommand(newRemoteCmd())
 	rootCmd.AddCommand(newPushCmd())
