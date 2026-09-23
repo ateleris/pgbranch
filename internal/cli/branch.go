@@ -10,20 +10,27 @@ import (
 	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
+var branchFrom string
+
 var branchCmd = &cobra.Command{
 	Use:   "branch [name]",
 	Short: "List or create branches",
 	Long: `List all branches or create a new branch.
 
 Without arguments, lists all branches.
-With a name argument, creates a new branch from the current database state.
+With a name argument, creates a new branch from the current database state,
+or from another branch's snapshot with --from.
 
 Examples:
-  pgbranch branch           # List all branches
-  pgbranch branch main      # Create branch 'main'
-  pgbranch branch feature-x # Create branch 'feature-x'`,
+  pgbranch branch                    # List all branches
+  pgbranch branch main               # Create branch 'main' from working state
+  pgbranch branch feature-x --from main # Create 'feature-x' from 'main'`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runBranch,
+}
+
+func init() {
+	branchCmd.Flags().StringVar(&branchFrom, "from", "", "Create the branch from another branch's snapshot instead of the working database")
 }
 
 func runBranch(cmd *cobra.Command, args []string) error {
@@ -37,7 +44,7 @@ func runBranch(cmd *cobra.Command, args []string) error {
 	}
 
 	name := args[0]
-	return createBranch(cmd.Context(), brancher, name)
+	return createBranch(cmd.Context(), brancher, name, branchFrom)
 }
 
 func listBranches(b *core.Brancher) error {
@@ -61,8 +68,14 @@ func listBranches(b *core.Brancher) error {
 	return nil
 }
 
-func createBranch(ctx context.Context, b *core.Brancher, name string) error {
-	if err := b.CreateBranch(ctx, name); err != nil {
+func createBranch(ctx context.Context, b *core.Brancher, name, from string) error {
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
+	if err := b.CreateBranch(ctx, name, from); err != nil {
 		return err
 	}
 

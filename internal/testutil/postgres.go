@@ -37,6 +37,19 @@ func StartPostgresContainer(ctx context.Context) (*TestPostgres, error) {
 // StartPostgresContainerWithArgs starts a PostgreSQL container with custom server arguments.
 // Use this to configure wal_level=logical, max_replication_slots, etc.
 func StartPostgresContainerWithArgs(ctx context.Context, serverArgs []string) (*TestPostgres, error) {
+	return StartPostgresContainerImageWithArgs(ctx, "postgres:17-alpine", serverArgs)
+}
+
+// StartPostgresContainerImage starts a PostgreSQL container from the given image.
+// Use this to match the local pg_dump/pg_restore version (e.g. "postgres:14-alpine")
+// or to run extensions like TimescaleDB (e.g. "timescale/timescaledb:latest-pg14").
+func StartPostgresContainerImage(ctx context.Context, image string) (*TestPostgres, error) {
+	return StartPostgresContainerImageWithArgs(ctx, image, nil)
+}
+
+// StartPostgresContainerImageWithArgs starts a PostgreSQL container from the
+// given image with custom server arguments.
+func StartPostgresContainerImageWithArgs(ctx context.Context, image string, serverArgs []string) (*TestPostgres, error) {
 	opts := []testcontainers.ContainerCustomizer{
 		postgres.WithDatabase(TestDBName),
 		postgres.WithUsername(TestUser),
@@ -56,7 +69,7 @@ func StartPostgresContainerWithArgs(ctx context.Context, serverArgs []string) (*
 	}
 
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:17-alpine",
+		image,
 		opts...,
 	)
 	if err != nil {
@@ -65,20 +78,20 @@ func StartPostgresContainerWithArgs(ctx context.Context, serverArgs []string) (*
 
 	host, err := pgContainer.Host(ctx)
 	if err != nil {
-		pgContainer.Terminate(ctx)
+		_ = pgContainer.Terminate(ctx)
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
 	mappedPort, err := pgContainer.MappedPort(ctx, "5432")
 	if err != nil {
-		pgContainer.Terminate(ctx)
+		_ = pgContainer.Terminate(ctx)
 		return nil, fmt.Errorf("failed to get mapped port: %w", err)
 	}
 
 	return &TestPostgres{
 		Container: pgContainer,
 		Host:      host,
-		Port:      mappedPort.Int(),
+		Port:      int(mappedPort.Num()),
 		Database:  TestDBName,
 		User:      TestUser,
 		Password:  TestPassword,

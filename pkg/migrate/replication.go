@@ -272,51 +272,52 @@ func (r *Replicator) streamOnce(ctx context.Context) error {
 		rawMsg, err := r.replConn.ReceiveMessage(recvCtx)
 		cancel()
 
-		if err != nil {
-			if pgconn.Timeout(err) {
-				continue
+		if err == nil {
+			switch msg := rawMsg.(type) {
+			case *pgproto3.CopyData:
+				switch msg.Data[0] {
+				case pglogrepl.PrimaryKeepaliveMessageByteID:
+					pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
+					if err != nil {
+						return fmt.Errorf("failed to parse keepalive: %w", err)
+					}
+					if pkm.ReplyRequested {
+						standbyDeadline = time.Time{} // force immediate reply
+					}
+
+				case pglogrepl.XLogDataByteID:
+					xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
+					if err != nil {
+						return fmt.Errorf("failed to parse XLogData: %w", err)
+					}
+
+					if err := r.handleWALData(ctx, xld); err != nil {
+						// If it's a target-side error, rollback and log but don't kill streaming.
+						r.rollbackTarget(ctx)
+						return fmt.Errorf("failed to handle WAL data: %w", err)
+					}
+
+					if xld.WALStart > lastReceivedLSN {
+						lastReceivedLSN = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
+					}
+				}
+
+			case *pgproto3.ErrorResponse:
+				return fmt.Errorf("server error: %s (SQLSTATE %s)", msg.Message, msg.Code)
+
+			default:
+				// Ignore unknown message types.
 			}
-			if ctx.Err() != nil {
-				return nil // graceful shutdown
-			}
+			continue
+		}
+
+		if pgconn.Timeout(err) {
+			continue
+		}
+		if ctx.Err() == nil {
 			return fmt.Errorf("receive message failed: %w", err)
 		}
-
-		switch msg := rawMsg.(type) {
-		case *pgproto3.CopyData:
-			switch msg.Data[0] {
-			case pglogrepl.PrimaryKeepaliveMessageByteID:
-				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
-				if err != nil {
-					return fmt.Errorf("failed to parse keepalive: %w", err)
-				}
-				if pkm.ReplyRequested {
-					standbyDeadline = time.Time{} // force immediate reply
-				}
-
-			case pglogrepl.XLogDataByteID:
-				xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
-				if err != nil {
-					return fmt.Errorf("failed to parse XLogData: %w", err)
-				}
-
-				if err := r.handleWALData(ctx, xld); err != nil {
-					// If it's a target-side error, rollback and log but don't kill streaming.
-					r.rollbackTarget(ctx)
-					return fmt.Errorf("failed to handle WAL data: %w", err)
-				}
-
-				if xld.WALStart > lastReceivedLSN {
-					lastReceivedLSN = xld.WALStart + pglogrepl.LSN(len(xld.WALData))
-				}
-			}
-
-		case *pgproto3.ErrorResponse:
-			return fmt.Errorf("server error: %s (SQLSTATE %s)", msg.Message, msg.Code)
-
-		default:
-			// Ignore unknown message types.
-		}
+		return nil // graceful shutdown
 	}
 }
 

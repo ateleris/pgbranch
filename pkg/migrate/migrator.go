@@ -67,7 +67,7 @@ func (m *Migrator) executeMigration(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to source: %w", err)
 	}
-	defer sourceConn.Close(ctx)
+	defer func() { _ = sourceConn.Close(ctx) }()
 
 	if err := ValidateSource(ctx, sourceConn); err != nil {
 		return fmt.Errorf("source validation failed: %w", err)
@@ -77,7 +77,7 @@ func (m *Migrator) executeMigration(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to target: %w", err)
 	}
-	defer targetConn.Close(ctx)
+	defer func() { _ = targetConn.Close(ctx) }()
 
 	if err := ValidateTarget(ctx, targetConn); err != nil {
 		return fmt.Errorf("target validation failed: %w", err)
@@ -90,8 +90,8 @@ func (m *Migrator) executeMigration(ctx context.Context) error {
 	m.tables = tables
 	cp.InitTables(tables)
 
-	sourceConn.Close(ctx)
-	targetConn.Close(ctx)
+	_ = sourceConn.Close(ctx)
+	_ = targetConn.Close(ctx)
 
 	if !cp.SchemaApplied {
 		m.send(PhaseEvent{Phase: PhaseSchema})
@@ -103,13 +103,13 @@ func (m *Migrator) executeMigration(ctx context.Context) error {
 
 		tgtConn, err := pgx.Connect(ctx, m.config.Target.ConnectionURL())
 		if err != nil {
-			srcConn.Close(ctx)
+			_ = srcConn.Close(ctx)
 			return fmt.Errorf("failed to connect to target for schema: %w", err)
 		}
 
 		err = CopySchema(ctx, srcConn, tgtConn, tables, m.config.Source.Database)
-		srcConn.Close(ctx)
-		tgtConn.Close(ctx)
+		_ = srcConn.Close(ctx)
+		_ = tgtConn.Close(ctx)
 
 		if err != nil {
 			return fmt.Errorf("schema copy failed: %w", err)

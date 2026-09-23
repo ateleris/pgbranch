@@ -37,6 +37,12 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
 	name := args[0]
 
 	if err := brancher.DeleteBranch(cmd.Context(), name, deleteForce); err != nil {

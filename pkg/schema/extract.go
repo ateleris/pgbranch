@@ -164,11 +164,12 @@ func (e *Extractor) extractColumns(ctx context.Context, schemaName, tableName st
 			NumericScale:     numScale,
 		}
 
-		if dataType == "ARRAY" {
+		switch dataType {
+		case "ARRAY":
 			col.IsArray = true
 			col.ElementType = strings.TrimPrefix(udtName, "_")
 			col.DataType = col.ElementType
-		} else if dataType == "USER-DEFINED" {
+		case "USER-DEFINED":
 			col.DataType = udtName
 		}
 
@@ -431,7 +432,7 @@ func ExtractFromURL(ctx context.Context, connURL string, dbName string) (*Schema
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	return ExtractFromConnection(ctx, conn, dbName)
 }

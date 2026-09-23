@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -25,7 +26,7 @@ func TestClientIntegration(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	cfg := pg.GetConfig()
 	client := NewClient(cfg)
@@ -85,7 +86,7 @@ func TestSnapshotAndRestoreIntegration(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	cfg := pg.GetConfig()
 	client := NewClient(cfg)
@@ -178,7 +179,7 @@ func TestSnapshotCreateRestoreDelete(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	cfg := pg.GetConfig()
 
@@ -235,7 +236,7 @@ func execSQL(ctx context.Context, cfg *config.Config, sql string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx, sql)
 	return err
@@ -246,7 +247,7 @@ func countRows(ctx context.Context, cfg *config.Config, table string) (int, erro
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var count int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
@@ -262,7 +263,7 @@ func rowExists(ctx context.Context, cfg *config.Config, table, column, value str
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + table + " WHERE " + column + " = $1)"
@@ -281,33 +282,35 @@ func TestIsCriticalRestoreError(t *testing.T) {
 		want   bool
 	}{
 		{
+			// A non-zero exit with no pg_restore error output at all (e.g.
+			// the process was killed, or never connected) is critical: with
+			// nothing to check against the allowlist, it must not be
+			// silently treated as success.
 			name:   "empty stderr",
 			stderr: "",
-			want:   false,
+			want:   true,
 		},
 		{
-			name:   "no ERROR keyword",
+			name:   "only a warning, no error line",
 			stderr: "pg_restore: warning: some warning message",
-			want:   false,
+			want:   true,
 		},
 		{
+			// Message and prefix format verified against real pg_restore
+			// (PostgreSQL 14) output for a restore into a database with a
+			// pre-existing conflicting object.
 			name:   "non-critical unrecognized configuration parameter",
-			stderr: "pg_restore: ERROR: unrecognized configuration parameter \"some_param\"",
-			want:   false,
-		},
-		{
-			name:   "non-critical errors ignored on restore",
-			stderr: "pg_restore: ERROR: unrecognized configuration parameter \"some_param\"\npg_restore: warning: errors ignored on restore: 1",
+			stderr: "pg_restore: error: could not execute query: ERROR:  unrecognized configuration parameter \"some_param\"\npg_restore: warning: errors ignored on restore: 1",
 			want:   false,
 		},
 		{
 			name:   "critical error relation does not exist",
-			stderr: "pg_restore: ERROR: relation \"users\" does not exist",
+			stderr: "pg_restore: error: could not execute query: ERROR:  relation \"users\" does not exist",
 			want:   true,
 		},
 		{
 			name:   "both non-critical and critical errors",
-			stderr: "pg_restore: ERROR: unrecognized configuration parameter \"some_param\"\npg_restore: ERROR: relation \"users\" does not exist",
+			stderr: "pg_restore: error: could not execute query: ERROR:  unrecognized configuration parameter \"some_param\"\npg_restore: error: could not execute query: ERROR:  relation \"users\" does not exist",
 			want:   true,
 		},
 	}
@@ -393,6 +396,8 @@ func TestBuildRestoreArgs(t *testing.T) {
 
 func TestBuildEnv(t *testing.T) {
 	t.Run("without password", func(t *testing.T) {
+		t.Setenv("PGPASSWORD", "")
+		require.NoError(t, os.Unsetenv("PGPASSWORD"))
 		cfg := &config.Config{
 			Host: "localhost",
 			Port: 5432,
@@ -519,7 +524,7 @@ func TestRestoreDatabase_NonCriticalError(t *testing.T) {
 	cfg := &config.Config{Host: "localhost", Port: 5432, User: "testuser"}
 	client := newMockClient(cfg)
 	client.runRestore = func(ctx context.Context, args []string, env []string, r io.Reader) (string, error) {
-		return `pg_restore: ERROR: unrecognized configuration parameter "some_param"`, fmt.Errorf("exit status 1")
+		return "pg_restore: error: could not execute query: ERROR:  unrecognized configuration parameter \"some_param\"\npg_restore: warning: errors ignored on restore: 1\n", fmt.Errorf("exit status 1")
 	}
 
 	err := client.RestoreDatabase(context.Background(), "mydb", bytes.NewReader(nil))
@@ -530,12 +535,44 @@ func TestRestoreDatabase_CriticalError(t *testing.T) {
 	cfg := &config.Config{Host: "localhost", Port: 5432, User: "testuser"}
 	client := newMockClient(cfg)
 	client.runRestore = func(ctx context.Context, args []string, env []string, r io.Reader) (string, error) {
-		return `pg_restore: ERROR: relation "foo" does not exist`, fmt.Errorf("exit status 1")
+		return `pg_restore: error: could not execute query: ERROR:  relation "foo" does not exist`, fmt.Errorf("exit status 1")
 	}
 
 	err := client.RestoreDatabase(context.Background(), "mydb", bytes.NewReader(nil))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pg_restore failed")
+}
+
+// TestRestoreDatabase_NonZeroExitNoErrorOutput_IsFailure reproduces the bug:
+// a non-zero pg_restore exit (e.g. the process was killed, or it never
+// managed to connect) with no "pg_restore: error:" lines at all used to be
+// treated as success, because the old check only looked for the literal
+// substring "ERROR" anywhere in stderr and defaulted to "not critical" when
+// it wasn't found.
+func TestRestoreDatabase_NonZeroExitNoErrorOutput_IsFailure(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 5432, User: "testuser"}
+	client := newMockClient(cfg)
+	client.runRestore = func(ctx context.Context, args []string, env []string, r io.Reader) (string, error) {
+		return "", fmt.Errorf("signal: killed")
+	}
+
+	err := client.RestoreDatabase(context.Background(), "mydb", bytes.NewReader(nil))
+	require.Error(t, err, "a non-zero exit with no pg_restore error output must not be silently treated as success")
+}
+
+// TestRestoreDatabase_NonZeroExitUnknownError_IsFailure reproduces the same
+// class of bug for a real, but unrecognized, "pg_restore: error:" line: it
+// must default to failure, not success, unless it matches the benign
+// allowlist.
+func TestRestoreDatabase_NonZeroExitUnknownError_IsFailure(t *testing.T) {
+	cfg := &config.Config{Host: "localhost", Port: 5432, User: "testuser"}
+	client := newMockClient(cfg)
+	client.runRestore = func(ctx context.Context, args []string, env []string, r io.Reader) (string, error) {
+		return "pg_restore: error: could not execute query: ERROR:  out of memory", fmt.Errorf("exit status 1")
+	}
+
+	err := client.RestoreDatabase(context.Background(), "mydb", bytes.NewReader(nil))
+	require.Error(t, err)
 }
 
 func TestRestoreDatabase_PassesCorrectArgs(t *testing.T) {

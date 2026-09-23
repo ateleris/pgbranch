@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,12 +21,13 @@ type mockRows struct {
 	err     error
 }
 
-func (m *mockRows) Close()                                        {}
-func (m *mockRows) Err() error                                    { return m.err }
-func (m *mockRows) CommandTag() pgconn.CommandTag                 { return pgconn.CommandTag{} }
-func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription  { return nil }
-func (m *mockRows) RawValues() [][]byte                           { return nil }
-func (m *mockRows) Conn() *pgx.Conn                               { return nil }
+func (m *mockRows) Close()                                       {}
+func (m *mockRows) Err() error                                   { return m.err }
+func (m *mockRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
+func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
+func (m *mockRows) RawValues() [][]byte                          { return nil }
+func (m *mockRows) Conn() *pgx.Conn                              { return nil }
+func (m *mockRows) TypeMap() *pgtype.Map                         { return pgtype.NewMap() }
 
 func (m *mockRows) Next() bool {
 	if m.index >= len(m.data) {
@@ -55,7 +57,7 @@ func (m *mockRows) Scan(dest ...any) error {
 			continue
 		}
 		dv := reflect.ValueOf(dest[i])
-		if dv.Kind() != reflect.Ptr {
+		if dv.Kind() != reflect.Pointer {
 			return fmt.Errorf("dest[%d] is not a pointer", i)
 		}
 		sv := reflect.ValueOf(src)

@@ -3,6 +3,7 @@ package credentials
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -65,9 +66,8 @@ func TestDecryptWithWrongKey(t *testing.T) {
 
 func TestSaveLoadKey(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	key, err := GenerateKey()
 	if err != nil {
@@ -84,7 +84,7 @@ func TestSaveLoadKey(t *testing.T) {
 		t.Fatalf("key file not created: %v", err)
 	}
 
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Errorf("key file permissions = %o, want 0600", info.Mode().Perm())
 	}
 
@@ -107,9 +107,7 @@ func TestSaveLoadKey(t *testing.T) {
 
 func TestStoreEncryptDecryptCredentials(t *testing.T) {
 	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	t.Setenv("HOME", tmpDir)
 
 	_, _, err := EnsureKey()
 	if err != nil {
@@ -152,10 +150,8 @@ func TestStoreEncryptDecryptCredentials(t *testing.T) {
 }
 
 func TestGetCredentialsFromEnv(t *testing.T) {
-	os.Setenv("AWS_ACCESS_KEY_ID", "test-access")
-	os.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
-	defer os.Unsetenv("AWS_ACCESS_KEY_ID")
-	defer os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-access")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
 
 	creds, err := GetCredentials(map[string]string{}, "s3")
 	if err != nil {
@@ -171,10 +167,8 @@ func TestGetCredentialsFromEnv(t *testing.T) {
 }
 
 func TestGetCredentialsR2FromEnv(t *testing.T) {
-	os.Setenv("R2_ACCESS_KEY_ID", "r2-access")
-	os.Setenv("R2_SECRET_ACCESS_KEY", "r2-secret")
-	defer os.Unsetenv("R2_ACCESS_KEY_ID")
-	defer os.Unsetenv("R2_SECRET_ACCESS_KEY")
+	t.Setenv("R2_ACCESS_KEY_ID", "r2-access")
+	t.Setenv("R2_SECRET_ACCESS_KEY", "r2-secret")
 
 	creds, err := GetCredentials(map[string]string{}, "r2")
 	if err != nil {

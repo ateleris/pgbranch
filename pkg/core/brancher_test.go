@@ -23,7 +23,7 @@ func TestInitialize(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -57,7 +57,7 @@ func TestBrancherOperations(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -84,7 +84,7 @@ func TestBrancherOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("CreateBranch", func(t *testing.T) {
-		err := brancher.CreateBranch(ctx, "main")
+		err := brancher.CreateBranch(ctx, "main", "")
 		require.NoError(t, err)
 
 		branch, ok := brancher.Metadata.GetBranch("main")
@@ -108,7 +108,7 @@ func TestBrancherOperations(t *testing.T) {
 	})
 
 	t.Run("CreateBranchDuplicate", func(t *testing.T) {
-		err := brancher.CreateBranch(ctx, "main")
+		err := brancher.CreateBranch(ctx, "main", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "already exists")
 	})
@@ -121,9 +121,9 @@ func TestBrancherOperations(t *testing.T) {
 
 	t.Run("CreateSecondBranch", func(t *testing.T) {
 		brancher.Metadata.CurrentBranch = "main"
-		brancher.Metadata.Save()
+		require.NoError(t, brancher.Metadata.Save())
 
-		err := brancher.CreateBranch(ctx, "feature-1")
+		err := brancher.CreateBranch(ctx, "feature-1", "")
 		require.NoError(t, err)
 
 		branch, ok := brancher.Metadata.GetBranch("feature-1")
@@ -136,7 +136,7 @@ func TestBrancherOperations(t *testing.T) {
 
 	t.Run("Status", func(t *testing.T) {
 		brancher.Metadata.CurrentBranch = "feature-1"
-		brancher.Metadata.Save()
+		require.NoError(t, brancher.Metadata.Save())
 
 		currentBranch, count := brancher.Status()
 		assert.Equal(t, "feature-1", currentBranch)
@@ -153,7 +153,7 @@ func TestCheckoutWorkflow(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -179,10 +179,10 @@ func TestCheckoutWorkflow(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	count, err := countRows(ctx, cfg, "products")
 	require.NoError(t, err)
@@ -208,7 +208,10 @@ func TestCheckoutWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	err = brancher.Checkout(ctx, "main")
+	// Checking out the branch that is already current is a no-op (it must
+	// not discard uncommitted work); discarding the modification and
+	// restoring "main"'s original snapshot is done with Reset instead.
+	err = brancher.Reset(ctx, "main")
 	require.NoError(t, err)
 
 	assert.Equal(t, "main", brancher.Metadata.CurrentBranch)
@@ -239,7 +242,7 @@ func TestDeleteBranch(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -255,12 +258,12 @@ func TestDeleteBranch(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
-	err = brancher.CreateBranch(ctx, "feature-1")
+	err = brancher.CreateBranch(ctx, "feature-1", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	feature1Branch, _ := brancher.Metadata.GetBranch("feature-1")
 	feature1SnapshotDB := feature1Branch.Snapshot
@@ -284,7 +287,7 @@ func TestDeleteBranch(t *testing.T) {
 
 	err = brancher.DeleteBranch(ctx, "main", false)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot delete current branch")
+	assert.Contains(t, err.Error(), "cannot delete the current branch")
 
 	err = brancher.DeleteBranch(ctx, "main", true)
 	require.NoError(t, err)
@@ -300,7 +303,7 @@ func TestUpdateBranch(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -316,10 +319,10 @@ func TestUpdateBranch(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	err = execSQL(ctx, cfg, "INSERT INTO items (name) VALUES ('Item2'), ('Item3'), ('Item4'), ('Item5')")
 	require.NoError(t, err)
@@ -350,7 +353,7 @@ func countRowsInDB(ctx context.Context, cfg *config.Config, table string) (int, 
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var count int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
@@ -370,7 +373,7 @@ func TestCheckoutNonExistentBranch(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -397,7 +400,7 @@ func TestFullE2EWorkflow(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -437,10 +440,10 @@ func TestFullE2EWorkflow(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	userCount, err := countRows(ctx, cfg, "users")
 	require.NoError(t, err)
@@ -477,10 +480,14 @@ func TestFullE2EWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, commentCount)
 
-	err = brancher.CreateBranch(ctx, "feature-add-comments")
+	err = brancher.CreateBranch(ctx, "feature-add-comments", "")
 	require.NoError(t, err)
 
-	err = brancher.Checkout(ctx, "main")
+	// Still on "main" (never switched away): checking it out again would be
+	// a no-op (checkout never discards uncommitted work), so discarding
+	// these modifications and restoring "main"'s original snapshot is done
+	// with Reset instead.
+	err = brancher.Reset(ctx, "main")
 	require.NoError(t, err)
 
 	userCount, err = countRows(ctx, cfg, "users")
@@ -525,7 +532,7 @@ func execSQL(ctx context.Context, cfg *config.Config, sql string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx, sql)
 	return err
@@ -536,7 +543,7 @@ func countRows(ctx context.Context, cfg *config.Config, table string) (int, erro
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var count int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
@@ -552,7 +559,7 @@ func rowExists(ctx context.Context, cfg *config.Config, table, column, value str
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + table + " WHERE " + column + " = $1)"
@@ -569,7 +576,7 @@ func getProductPrice(ctx context.Context, cfg *config.Config, productName string
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var price string
 	err = conn.QueryRow(ctx, "SELECT price FROM products WHERE name = $1", productName).Scan(&price)
@@ -589,7 +596,7 @@ func TestCheckoutAutoSave(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -612,12 +619,12 @@ func TestCheckoutAutoSave(t *testing.T) {
 	brancher, err := Open(testDir.Path)
 	require.NoError(t, err)
 
-	err = brancher.CreateBranch(ctx, "main")
+	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
-	err = brancher.CreateBranch(ctx, "feature")
+	err = brancher.CreateBranch(ctx, "feature", "")
 	require.NoError(t, err)
 
 	err = brancher.Checkout(ctx, "feature")
@@ -671,4 +678,57 @@ func TestCheckoutAutoSave(t *testing.T) {
 	exists, err = rowExists(ctx, cfg, "items", "name", "original_item")
 	require.NoError(t, err)
 	assert.False(t, exists)
+}
+
+// TestCheckoutCurrentBranchIsNoOp verifies that checking out the branch that
+// is already current does not replace the working database with its own
+// (now stale) snapshot, which would discard uncommitted work.
+func TestCheckoutCurrentBranchIsNoOp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	pg, err := testutil.StartPostgresContainer(ctx)
+	require.NoError(t, err)
+	defer func() { _ = pg.Stop(ctx) }()
+
+	testDir := testutil.SetupTestDir(t)
+	defer testDir.Cleanup(t)
+
+	cfg := pg.GetConfig()
+
+	err = Initialize(testDir.Path, cfg)
+	require.NoError(t, err)
+
+	setupSQL := `
+		CREATE TABLE items (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(100) NOT NULL
+		);
+		INSERT INTO items (name) VALUES ('original_item');
+	`
+	err = execSQL(ctx, cfg, setupSQL)
+	require.NoError(t, err)
+
+	brancher, err := Open(testDir.Path)
+	require.NoError(t, err)
+
+	err = brancher.CreateBranch(ctx, "main", "")
+	require.NoError(t, err)
+	brancher.Metadata.CurrentBranch = "main"
+	require.NoError(t, brancher.Metadata.Save())
+
+	// Diverge the working database from the "main" snapshot without saving.
+	err = execSQL(ctx, cfg, `INSERT INTO items (name) VALUES ('uncommitted_work');`)
+	require.NoError(t, err)
+
+	// Checking out the already-current branch must not discard this work.
+	err = brancher.Checkout(ctx, "main")
+	require.NoError(t, err)
+
+	exists, err := rowExists(ctx, cfg, "items", "name", "uncommitted_work")
+	require.NoError(t, err)
+	assert.True(t, exists, "checkout of the current branch must be a no-op and not restore the stale snapshot")
 }

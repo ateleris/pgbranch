@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	"github.com/le-vlad/pgbranch/pkg/archive"
 	"github.com/le-vlad/pgbranch/pkg/storage"
-	"github.com/spf13/cobra"
 )
 
 func newPullCmd() *cobra.Command {
@@ -80,7 +81,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to pull from remote: %w", err)
 			}
-			defer reader.Close()
+			defer func() { _ = reader.Close() }()
 
 			fmt.Printf("Downloaded %s, verifying...\n", formatSize(size))
 
@@ -106,7 +107,8 @@ Examples:
 				}
 			}
 
-			snapshotDBName := storage.SnapshotDBName(brancher.Config.Database, targetName)
+			primary := brancher.Config.PrimaryDatabase()
+			snapshotDBName := storage.SnapshotDBName(primary, targetName)
 
 			fmt.Printf("Restoring to local snapshot...\n")
 
@@ -114,10 +116,11 @@ Examples:
 				return fmt.Errorf("failed to restore snapshot: %w", err)
 			}
 
-			brancher.Metadata.AddBranch(targetName, "", snapshotDBName)
+			branch := brancher.Metadata.AddBranch(targetName, "", map[string]string{primary: snapshotDBName})
+			branch.Snapshot = snapshotDBName
 
 			if err := brancher.Metadata.Save(); err != nil {
-				brancher.Client.DeleteSnapshot(cmd.Context(), snapshotDBName)
+				_ = brancher.Client.DeleteSnapshot(cmd.Context(), snapshotDBName)
 				return fmt.Errorf("failed to save metadata: %w", err)
 			}
 

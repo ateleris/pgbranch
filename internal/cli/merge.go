@@ -11,8 +11,9 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/jackc/pgx/v5"
-	"github.com/le-vlad/pgbranch/pkg/schema"
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/pkg/schema"
 )
 
 func newMergeCmd() *cobra.Command {
@@ -146,7 +147,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to connect to target: %w", err)
 			}
-			defer conn.Close(ctx)
+			defer func() { _ = conn.Close(ctx) }()
 
 			applier := schema.NewApplier(conn)
 			result, err := applier.Apply(ctx, changeSet)

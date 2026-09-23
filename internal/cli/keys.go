@@ -4,8 +4,9 @@ import (
 	"fmt"
 
 	"github.com/fatih/color"
-	"github.com/le-vlad/pgbranch/internal/credentials"
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/internal/credentials"
 )
 
 func newKeysCmd() *cobra.Command {

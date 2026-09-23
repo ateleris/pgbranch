@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
+	"github.com/le-vlad/pgbranch/internal/lock"
 	"github.com/le-vlad/pgbranch/pkg/config"
 	"github.com/le-vlad/pgbranch/pkg/core"
 )
@@ -35,7 +37,12 @@ Share snapshots with your team:
   pgbranch pull main`,
 }
 
-func Execute() {
+// Execute runs the CLI. info supplies the version metadata reported by
+// `pgbranch version` and `pgbranch --version`.
+func Execute(info BuildInfo) {
+	buildInfo = info
+	rootCmd.Version = resolvedVersion()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -44,10 +51,17 @@ func Execute() {
 	}
 }
 
-// workspace returns the directory the CLI operates on: the current working
-// directory. Library callers pass their workspace directory explicitly.
+// workspace returns the directory the CLI operates on: the nearest
+// .pgbranch directory found by walking up from the current working
+// directory, falling back to the git top-level directory or main worktree
+// root, and finally the current working directory itself. Library callers
+// pass their workspace directory explicitly.
 func workspace() (string, error) {
-	return config.WorkingDir()
+	cwd, err := config.WorkingDir()
+	if err != nil {
+		return "", err
+	}
+	return findWorkspace(cwd)
 }
 
 // openBrancher opens the pgbranch workspace in the current working directory.
@@ -62,6 +76,26 @@ func openBrancher() (*core.Brancher, error) {
 		return nil, notInitializedHint(err)
 	}
 	return brancher, nil
+}
+
+// acquireLock acquires the workspace's lock file, to serialize a mutating
+// operation (checkout, branch create, delete, prune, reset, sync) against
+// concurrent pgbranch invocations. Callers must release it (typically via
+// defer) once the operation is done.
+func acquireLock() (*lock.Lock, error) {
+	dir, err := workspace()
+	if err != nil {
+		return nil, err
+	}
+
+	l, err := lock.Acquire(config.RootDir(dir))
+	if err != nil {
+		if errors.Is(err, lock.ErrLocked) {
+			return nil, fmt.Errorf("%w. If you're sure no other pgbranch command is running, remove %s", err, lock.FileName)
+		}
+		return nil, err
+	}
+	return l, nil
 }
 
 // loadConfig loads the configuration from the current working directory.
@@ -98,6 +132,7 @@ func init() {
 	rootCmd.AddCommand(hookCmd)
 	rootCmd.AddCommand(pruneCmd)
 	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(versionCmd)
 
 	rootCmd.AddCommand(newRemoteCmd())
 	rootCmd.AddCommand(newPushCmd())

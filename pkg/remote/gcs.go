@@ -102,7 +102,7 @@ func createGCSClient(ctx context.Context, options map[string]string) (*storage.C
 	}
 
 	if serviceAccountPath != "" {
-		opts = append(opts, option.WithCredentialsFile(serviceAccountPath))
+		opts = append(opts, option.WithAuthCredentialsFile(option.ServiceAccount, serviceAccountPath))
 	}
 
 	client, err := storage.NewClient(ctx, opts...)
@@ -139,7 +139,7 @@ func (r *GCSRemote) Push(ctx context.Context, branchName string, reader io.Reade
 	}
 
 	if _, err := io.Copy(w, reader); err != nil {
-		w.Close()
+		_ = w.Close()
 		return fmt.Errorf("failed to upload to GCS: %w", err)
 	}
 

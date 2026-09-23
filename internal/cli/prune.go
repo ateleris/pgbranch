@@ -9,12 +9,15 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/le-vlad/pgbranch/internal/gitx"
 	"github.com/le-vlad/pgbranch/pkg/core"
 )
 
 var (
-	pruneDays  int
-	pruneForce bool
+	pruneDays   int
+	pruneForce  bool
+	pruneGone   bool
+	pruneDryRun bool
 )
 
 var pruneCmd = &cobra.Command{
@@ -39,12 +42,18 @@ Examples:
 func init() {
 	pruneCmd.Flags().IntVarP(&pruneDays, "days", "d", core.DefaultStaleDays, "Days after which a branch is considered stale")
 	pruneCmd.Flags().BoolVarP(&pruneForce, "force", "y", false, "Skip interactive mode and prune all stale branches")
+	pruneCmd.Flags().BoolVar(&pruneGone, "gone", false, "Prune branches whose git branch no longer exists locally")
+	pruneCmd.Flags().BoolVar(&pruneDryRun, "dry-run", false, "Show what would be pruned without deleting anything")
 }
 
 func runPrune(cmd *cobra.Command, args []string) error {
 	brancher, err := openBrancher()
 	if err != nil {
 		return err
+	}
+
+	if pruneGone {
+		return runPruneGone(cmd, brancher)
 	}
 
 	staleBranches := brancher.GetStaleBranches(pruneDays)
@@ -119,6 +128,12 @@ func runPrune(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
 	fmt.Println()
 	deleted, errors := brancher.PruneBranches(cmd.Context(), toPrune)
 
@@ -130,6 +145,83 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, err := range errors {
+		fmt.Printf("%s %v\n", red("✗"), err)
+	}
+
+	if len(deleted) > 0 {
+		fmt.Printf("\n%s Pruned %d branch(es).\n", green("✓"), len(deleted))
+	}
+
+	return nil
+}
+
+func runPruneGone(cmd *cobra.Command, brancher *core.Brancher) error {
+	dir, err := workspace()
+	if err != nil {
+		return err
+	}
+
+	repo, err := gitx.Open(dir)
+	if err != nil {
+		return fmt.Errorf("prune --gone requires a git repository: %w", err)
+	}
+
+	localBranches, err := repo.LocalBranches()
+	if err != nil {
+		return err
+	}
+
+	gone := brancher.GoneBranches(localBranches)
+
+	if len(gone) == 0 {
+		green := color.New(color.FgGreen).SprintFunc()
+		fmt.Printf("%s No gone branches found.\n", green("✓"))
+		return nil
+	}
+
+	yellow := color.New(color.FgYellow).SprintFunc()
+	fmt.Printf("%s Found %d branch(es) whose git branch no longer exists:\n\n", yellow("!"), len(gone))
+	for _, name := range gone {
+		fmt.Printf("  %s\n", name)
+	}
+	fmt.Println()
+
+	if pruneDryRun {
+		fmt.Println("Dry run: nothing was deleted.")
+		return nil
+	}
+
+	if !pruneForce {
+		red := color.New(color.FgRed, color.Bold).SprintFunc()
+		fmt.Printf("%s This will permanently delete %d branch(es) and their database snapshots.\n",
+			red("!"), len(gone))
+		fmt.Print("Continue? [y/N]: ")
+
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.TrimSpace(strings.ToLower(response))
+
+		if response != "y" && response != "yes" {
+			fmt.Println("Aborted.")
+			return nil
+		}
+	}
+
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
+	deleted, errs := brancher.PruneBranches(cmd.Context(), gone)
+
+	green := color.New(color.FgGreen).SprintFunc()
+	red := color.New(color.FgRed).SprintFunc()
+
+	for _, name := range deleted {
+		fmt.Printf("%s Deleted branch '%s'\n", green("✓"), name)
+	}
+	for _, err := range errs {
 		fmt.Printf("%s %v\n", red("✗"), err)
 	}
 

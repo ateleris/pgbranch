@@ -21,7 +21,7 @@ func (r *Replicator) RunSnapshot(ctx context.Context, snapshotName string) error
 	if err != nil {
 		return fmt.Errorf("failed to begin snapshot transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if snapshotName != "" {
 		if _, err := tx.Exec(ctx, fmt.Sprintf("SET TRANSACTION SNAPSHOT '%s'", snapshotName)); err != nil {

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -65,12 +66,17 @@ func Create(ctx context.Context, cfg *config.Config, branchName, snapshotDBName 
 }
 
 // WriteTo writes the archive to the given writer in gzipped tar format.
-func (a *Archive) WriteTo(w io.Writer) (int64, error) {
+func (a *Archive) WriteTo(w io.Writer) (n int64, err error) {
 	gzw := gzip.NewWriter(w)
-	defer gzw.Close()
-
 	tw := tar.NewWriter(gzw)
-	defer tw.Close()
+	defer func() {
+		if cerr := tw.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+		if cerr := gzw.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	manifestData, err := a.Manifest.ToJSON()
 	if err != nil {
@@ -110,7 +116,7 @@ func ReadFrom(r io.Reader) (*Archive, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }()
 
 	tr := tar.NewReader(gzr)
 
@@ -119,7 +125,7 @@ func ReadFrom(r io.Reader) (*Archive, error) {
 
 	for {
 		header, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -187,12 +193,16 @@ func (a *Archive) Restore(ctx context.Context, cfg *config.Config, snapshotDBNam
 }
 
 // SaveToFile saves the archive to the specified file path.
-func (a *Archive) SaveToFile(path string) error {
+func (a *Archive) SaveToFile(path string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	_, err = a.WriteTo(f)
 	return err
@@ -204,7 +214,7 @@ func LoadFromFile(path string) (*Archive, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return ReadFrom(f)
 }

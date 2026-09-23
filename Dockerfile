@@ -1,16 +1,21 @@
-ARG GO_VERSION=1.25
-FROM golang:${GO_VERSION}-trixie AS build
+ARG GO_VERSION=1.27
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-trixie AS build
 
-WORKDIR /pgbrnach
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=none
+
+WORKDIR /src
 
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
     -trimpath \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
     -o /out/pgbranch \
     ./cmd/pgbranch
 
@@ -24,3 +29,5 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/pgbranch /usr/local/bin/pgbranch
+
+ENTRYPOINT ["pgbranch"]

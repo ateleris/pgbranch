@@ -7,9 +7,10 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/jackc/pgx/v5"
+	"github.com/spf13/cobra"
+
 	"github.com/le-vlad/pgbranch/pkg/core"
 	"github.com/le-vlad/pgbranch/pkg/schema"
-	"github.com/spf13/cobra"
 )
 
 func newDiffCmd() *cobra.Command {
@@ -121,7 +122,7 @@ func extractSchemaFromDB(ctx context.Context, brancher *core.Brancher, dbName st
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	return schema.ExtractFromConnection(ctx, conn, dbName)
 }
