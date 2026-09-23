@@ -483,7 +483,11 @@ func TestFullE2EWorkflow(t *testing.T) {
 	err = brancher.CreateBranch(ctx, "feature-add-comments", "")
 	require.NoError(t, err)
 
-	err = brancher.Checkout(ctx, "main")
+	// Still on "main" (never switched away): checking it out again would be
+	// a no-op (checkout never discards uncommitted work), so discarding
+	// these modifications and restoring "main"'s original snapshot is done
+	// with Reset instead.
+	err = brancher.Reset(ctx, "main")
 	require.NoError(t, err)
 
 	userCount, err = countRows(ctx, cfg, "users")

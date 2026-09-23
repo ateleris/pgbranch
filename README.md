@@ -160,8 +160,19 @@ pgbranch init -d app -d app_identity:dump --baseline main
 
 Every branch has its own snapshot of *each* configured database. `branch`,
 `checkout`, `delete`, `prune` and `reset` all operate on every database in
-the workspace, cloning or restoring each one in turn (`status` reports each
-database's working name, strategy, snapshot name, existence and size).
+the workspace (`status` reports each database's working name, strategy,
+snapshot name, existence and size).
+
+`checkout` and `reset` treat all of a branch's databases as one operation:
+they first check that a snapshot exists for every configured database
+(failing with a clear error naming any that are missing, before touching
+anything), then build every database's replacement clone before swapping
+any of them into place, so a failure preparing one database's clone never
+leaves another already swapped to the new branch. If a swap itself still
+fails partway through, the working databases are left inconsistent across
+branches; pgbranch clears the current branch in that case so the next save
+does not overwrite a snapshot with the mixed state, and the error tells you
+to run `pgbranch checkout <branch>` or `pgbranch reset` to recover.
 
 `push`, `pull`, `diff` and `merge` are not multi-database aware: they only
 ever act on the primary database, i.e. the first one passed to `-d` (or

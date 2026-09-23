@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/le-vlad/pgbranch/pkg/config"
 	"github.com/le-vlad/pgbranch/pkg/postgres"
@@ -266,20 +267,8 @@ func (b *Brancher) Checkout(ctx context.Context, name string) error {
 		}
 	}
 
-	for _, db := range b.Config.Databases {
-		snap, ok := branch.Snapshots[db.Name]
-		if !ok || snap == "" {
-			return fmt.Errorf("branch '%s' has no snapshot for database '%s'", name, db.Name)
-		}
-
-		strategy, err := parseStrategy(db.Strategy)
-		if err != nil {
-			return err
-		}
-
-		if err := b.Client.ReplaceDatabase(ctx, snap, db.Name, strategy); err != nil {
-			return fmt.Errorf("failed to restore database '%s': %w", db.Name, err)
-		}
+	if err := b.replaceAllDatabases(ctx, name, branch.Snapshots); err != nil {
+		return err
 	}
 
 	b.Metadata.CurrentBranch = name
@@ -290,6 +279,77 @@ func (b *Brancher) Checkout(ctx context.Context, name string) error {
 
 	if err := b.Metadata.Save(); err != nil {
 		return fmt.Errorf("failed to update metadata: %w", err)
+	}
+
+	return nil
+}
+
+// replaceAllDatabases replaces every configured database's working copy
+// with the given branch's snapshots, as a single logical operation:
+//
+//  1. It verifies every configured database has a snapshot in snapshots
+//     before touching anything, so a branch missing one for even a single
+//     database fails cleanly up front rather than partway through.
+//  2. It builds every database's scratch clone first (Prepare --
+//     non-destructive: it never touches a working database), and only
+//     once every one of them has succeeded does it swap each one into
+//     place (Commit). This means a failure cloning any one database's
+//     snapshot never leaves any working database swapped to the new
+//     branch while others are not.
+//  3. If a Commit still fails (e.g. a database recreated concurrently by
+//     the application under it), one or more working databases may
+//     already belong to branchName while others don't, yet metadata still
+//     names the old branch current. To stop the next save from
+//     overwriting a snapshot with this mixed-branch data, CurrentBranch is
+//     cleared and metadata is saved before returning the error, which
+//     tells the caller how to recover.
+func (b *Brancher) replaceAllDatabases(ctx context.Context, branchName string, snapshots map[string]string) error {
+	var missing []string
+	for _, db := range b.Config.Databases {
+		snap, ok := snapshots[db.Name]
+		if !ok || snap == "" {
+			missing = append(missing, db.Name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("branch '%s' has no snapshot for database(s): %s", branchName, strings.Join(missing, ", "))
+	}
+
+	prepared := make([]*postgres.PreparedReplace, 0, len(b.Config.Databases))
+	abortAll := func() {
+		for _, p := range prepared {
+			p.Abort(ctx)
+		}
+	}
+
+	for _, db := range b.Config.Databases {
+		strategy, err := parseStrategy(db.Strategy)
+		if err != nil {
+			abortAll()
+			return err
+		}
+
+		p, err := b.Client.PrepareReplace(ctx, snapshots[db.Name], db.Name, strategy)
+		if err != nil {
+			abortAll()
+			return fmt.Errorf("failed to prepare database '%s': %w", db.Name, err)
+		}
+		prepared = append(prepared, p)
+	}
+
+	for i, db := range b.Config.Databases {
+		if err := prepared[i].Commit(ctx); err != nil {
+			for _, p := range prepared[i+1:] {
+				p.Abort(ctx)
+			}
+			b.Metadata.CurrentBranch = ""
+			_ = b.Metadata.Save()
+			return fmt.Errorf(
+				"failed to restore database '%s': %w (working databases are now inconsistent across branches: "+
+					"run 'pgbranch checkout %s' or 'pgbranch reset' to recover)",
+				db.Name, err, branchName,
+			)
+		}
 	}
 
 	return nil
@@ -421,20 +481,8 @@ func (b *Brancher) Reset(ctx context.Context, from string) error {
 		return branchNotFound(from)
 	}
 
-	for _, db := range b.Config.Databases {
-		snap, ok := branch.Snapshots[db.Name]
-		if !ok || snap == "" {
-			return fmt.Errorf("branch '%s' has no snapshot for database '%s'", from, db.Name)
-		}
-
-		strategy, err := parseStrategy(db.Strategy)
-		if err != nil {
-			return err
-		}
-
-		if err := b.Client.ReplaceDatabase(ctx, snap, db.Name, strategy); err != nil {
-			return fmt.Errorf("failed to reset database '%s': %w", db.Name, err)
-		}
+	if err := b.replaceAllDatabases(ctx, from, branch.Snapshots); err != nil {
+		return err
 	}
 
 	if current := b.Metadata.CurrentBranch; current != "" {
