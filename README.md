@@ -20,11 +20,16 @@ Git branching for your PostgreSQL database.
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Commands](#commands)
+- [Multiple Databases](#multiple-databases)
+- [Clone Strategies & TimescaleDB](#clone-strategies--timescaledb)
 - [Schema Diff](#schema-diff)
 - [Schema Merge](#schema-merge) *(Beta)*
 - [Continuous Migration](#continuous-migration)
 - [Automatic Branch Switching](#automatic-branch-switching)
+- [Configuration](#configuration)
+- [Passwords](#passwords)
 - [Remotes](#remotes)
+- [Troubleshooting](#troubleshooting)
 - [Using pgbranch as a Library](#using-pgbranch-as-a-library)
 - [Caveats](#caveats)
 
@@ -86,6 +91,7 @@ pgbranch checkout main
 # Create a new feature branch and switch to it
 pgbranch branch feature-auth
 pgbranch checkout feature-auth
+# equivalently: pgbranch checkout -b feature-auth --from main
 
 # Do some work, run migrations, whatever
 
@@ -93,34 +99,99 @@ pgbranch checkout feature-auth
 pgbranch checkout main
 
 # Your database is now exactly as it was before
+
+# Optional: keep the DB branch in sync with `git checkout` automatically
+pgbranch hook install
 ```
 
 ## Commands
 
 ```
-pgbranch init -d <database>    Initialize pgbranch
+pgbranch init -d <database>    Initialize pgbranch (repeat -d for multiple databases)
 pgbranch branch                List all branches
 pgbranch branch <name>         Create a branch from current state
+pgbranch branch <name> --from <b>  Create a branch from another branch's snapshot
 pgbranch checkout <name>       Switch to a branch
+pgbranch checkout -b <name> [--from <b>]  Create a new branch and switch to it
 pgbranch delete <name>         Delete a branch
-pgbranch status                Show current branch and info
+pgbranch status                Show current branch and per-database info
 pgbranch log                   Show all branches with details
-pgbranch hook install          Install git hook for auto-switching
+pgbranch sync                  Sync the DB branch with the current git branch
+pgbranch reset [--from <b>]    Reset working database(s) to a branch's snapshot
+pgbranch prune                 Remove stale branches
+pgbranch prune --gone          Remove branches whose git branch no longer exists locally
+pgbranch hook install          Install the post-checkout git hook
 pgbranch hook uninstall        Remove the git hook
-pgbranch diff <branch1> [branch2]  Compare schemas between branches
-pgbranch merge <source> <target>   Merge schema changes (Beta)
+pgbranch diff <branch1> [branch2]  Compare schemas between branches (primary database)
+pgbranch merge <source> <target>   Merge schema changes (Beta, primary database)
 pgbranch migrate -c <config.yaml>  Migrate database via logical replication
 ```
+
+`push`, `pull`, `diff` and `merge` only ever operate on the primary
+database -- the first one listed in `-d`/`databases`.
 
 ### Init Options
 
 ```
--d, --database   Database name (required)
--H, --host       PostgreSQL host (default: localhost)
--p, --port       PostgreSQL port (default: 5432)
--U, --user       PostgreSQL user (default: postgres)
--W, --password   PostgreSQL password
+-d, --database stringArray   Database name (repeatable); optionally 'name:strategy' (auto|template|dump)
+    --strategy string        Default clone strategy for databases without one (auto|template|dump)
+-H, --host string            PostgreSQL host (default "localhost")
+-p, --port int               PostgreSQL port (default 5432)
+-U, --user string            PostgreSQL user (default "postgres")
+-W, --password string        PostgreSQL password (stored in plain text; prefer PGPASSWORD or ~/.pgpass)
+    --baseline string        Baseline branch name (default "main")
+    --hook                   Install the post-checkout git hook
 ```
+
+## Multiple Databases
+
+A workspace can manage more than one database, useful when your app is split
+across databases (e.g. a main app database and a separate identity/auth
+database):
+
+```bash
+pgbranch init -d app -d app_identity:dump --baseline main
+```
+
+Every branch has its own snapshot of *each* configured database. `branch`,
+`checkout`, `delete`, `prune` and `reset` all operate on every database in
+the workspace, cloning or restoring each one in turn (`status` reports each
+database's working name, strategy, snapshot name, existence and size).
+
+`push`, `pull`, `diff` and `merge` are not multi-database aware: they only
+ever act on the primary database, i.e. the first one passed to `-d` (or
+config `databases[0]`).
+
+An old config with a single `database` field still loads fine -- it's
+migrated in memory to a one-entry `databases` list the first time the config
+is read.
+
+## Clone Strategies & TimescaleDB
+
+Each database has a clone strategy, set per-database with `-d name:strategy`
+or defaulted with `--strategy` (`config.json`'s `strategy` field). Strategies:
+
+- **`auto`** (default) -- resolved per clone: `dump` if the source database
+  has the `timescaledb` extension installed, `template` otherwise.
+- **`template`** -- `CREATE DATABASE dst TEMPLATE src`. Fast, file-level
+  copy. Connections to `src` are terminated first; if Postgres still reports
+  the source "is being accessed by other users" (SQLSTATE `55006`, e.g. a
+  TimescaleDB background worker reconnecting right after being terminated),
+  it retries up to 5 times with a short backoff.
+- **`dump`** -- streams `pg_dump -Fc --no-owner --no-privileges` directly
+  into `pg_restore --no-owner --no-privileges` (no intermediate file). If the
+  source has the `timescaledb` extension, the destination gets
+  `CREATE EXTENSION IF NOT EXISTS timescaledb`, then
+  `SELECT timescaledb_pre_restore()` before the restore and
+  `SELECT timescaledb_post_restore()` after -- the post-restore call always
+  runs, even if the restore itself failed, so the destination is never left
+  with `timescaledb.restoring` stuck on. After restoring, the destination's
+  table count (from `information_schema.tables`, excluding the catalog
+  schemas) must be at least the source's, or the clone is treated as failed.
+
+`pg_dump` and `pg_restore` must be on `PATH` and version-compatible with
+(specifically, not older than) the server for the `dump` strategy to work;
+if they're missing, the error names the missing binary with an install hint.
 
 ## Schema Diff
 
@@ -293,7 +364,13 @@ Shows a rich TUI with per-table progress bars during the snapshot phase and live
 
 ## Requirements
 
-- PostgreSQL (with `psql`, `createdb`, `dropdb` in PATH)
+- A reachable PostgreSQL server -- branching and checkout run entirely
+  in-process over the wire protocol (via `pgx`), no `psql`/`createdb`/`dropdb`
+  needed.
+- `pg_dump` and `pg_restore` on `PATH`, version-compatible with the server,
+  if any database uses (or resolves to, under `auto`) the `dump` clone
+  strategy, or for `push`/`pull`.
+- `git`, if you use `pgbranch hook install` / `pgbranch sync`.
 - Go 1.21+ (for installation)
 
 ## What It Actually Creates
@@ -301,6 +378,15 @@ Shows a rich TUI with per-table progress bars during the snapshot phase and live
 When you run `pgbranch branch feature-x` on a database called `myapp_dev`, it creates a new database called `myapp_dev_pgbranch_feature_x`. That's your snapshot.
 
 Your working database stays as `myapp_dev`. When you checkout, it gets replaced with a copy of the snapshot.
+
+Snapshot names are built as `<database>_pgbranch_<branch>`, where the branch
+name is lowercased, every character outside `[a-z0-9_]` becomes `_`, and runs
+of `_` are collapsed to one. If the result would exceed 63 bytes (Postgres's
+identifier limit), it's truncated so the last 7 bytes are `_` followed by
+the first 6 hex characters of the SHA-1 hash of the original (unsanitized)
+branch name -- this keeps long or colliding branch names deterministic and
+distinct. This only affects newly created branches; existing snapshots keep
+whatever name is already recorded in their metadata.
 
 ## Automatic Branch Switching
 
@@ -310,13 +396,95 @@ Tired of manually running `pgbranch checkout` every time you switch git branches
 pgbranch hook install
 ```
 
-Now whenever you run `git checkout feature-x`, pgbranch will automatically switch your database to the `feature-x` branch (if it exists).
+Now whenever you run `git checkout feature-x` (or `git switch`), pgbranch
+runs `pgbranch sync --hook "$@"`, which checks out the matching DB branch,
+creating it first if it doesn't exist yet (from the baseline branch by
+default, or from the current working state if `new_branch_from: "current"`
+is set -- see [Configuration](#configuration)).
 
-To remove the hook:
+`pgbranch sync` (and the hook) is a no-op when:
+- HEAD is detached, or the checkout only touched files (not a branch switch)
+- a rebase or merge is in progress
+- you're in a linked git worktree, unless `follow_worktrees: true` is set in
+  `config.json` (worktrees are skipped by default because they usually share
+  one working database, which branch switches in other worktrees would
+  otherwise fight over)
 
-```bash
-pgbranch hook uninstall
+You can also run `pgbranch sync` by hand at any time -- it reads the current
+git branch instead of hook arguments.
+
+### Installing the hook
+
+`pgbranch hook install` (also available as `pgbranch init --hook`) writes
+its hook to the repository's real hooks directory: `core.hooksPath` if set,
+otherwise `<git-common-dir>/hooks`, so it works correctly from any linked
+worktree.
+
+- No `post-checkout` hook yet -- pgbranch writes a small POSIX `sh` script
+  that calls `pgbranch sync --hook "$@"`.
+- An existing, foreign `post-checkout` hook -- pgbranch appends a guarded
+  line instead of overwriting it:
+  ```sh
+  command -v pgbranch >/dev/null 2>&1 && pgbranch sync --hook "$@"
+  ```
+  This is idempotent; running install again won't duplicate the line. An
+  old-style hook from a previous version of this fork (which called
+  `pgbranch checkout` directly) is recognized and replaced.
+- `.husky/` or a `lefthook.yml`/`lefthook.yaml` present -- pgbranch assumes a
+  hook manager owns `post-checkout` and doesn't touch any files. It prints
+  the line to add to `.husky/post-checkout`, or the `lefthook.yml` snippet,
+  instead.
+
+`pgbranch hook uninstall` removes only what pgbranch itself installed: the
+whole file if it's entirely pgbranch's script, or just the guarded line if
+it shares the file with a foreign hook.
+
+## Configuration
+
+`.pgbranch/config.json`, written by `init` and updated by the CLI as you add
+remotes or change settings:
+
+```json
+{
+  "databases": [
+    { "name": "app", "strategy": "auto" },
+    { "name": "app_identity", "strategy": "dump" }
+  ],
+  "host": "localhost",
+  "port": 5432,
+  "user": "postgres",
+  "baseline_branch": "main",
+  "new_branch_from": "baseline",
+  "follow_worktrees": false
+}
 ```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `databases` | -- | List of `{name, strategy}`. `strategy` is `""`/`auto`, `template` or `dump`. |
+| `database` | -- | Legacy single-database field; still read, migrated in memory to `databases` on load. |
+| `host`, `port`, `user`, `password` | `localhost`, `5432`, `postgres`, `""` | Connection settings. |
+| `baseline_branch` | `main` | The branch new branches clone from by default, and the one `prune --gone` never removes. |
+| `new_branch_from` | `baseline` | Where `sync` clones a newly auto-created branch from: `baseline` or `current`. |
+| `follow_worktrees` | `false` | Whether the git hook also runs inside linked worktrees. |
+| `remotes`, `default_remote` | -- | Configured remote storage backends (see [Remotes](#remotes)). |
+
+Configs from before multiple databases (with only a top-level `database`
+field) keep working unchanged -- they're normalized to `databases` in memory
+every time they're loaded, and rewritten in the new format the next time
+pgbranch saves the config.
+
+## Passwords
+
+`init` no longer requires `-W`. pgbranch's own connections (via `pgx`) and
+the `pg_dump`/`pg_restore` it shells out to for the `dump` strategy and for
+`push`/`pull` all honor the standard libpq mechanisms, so prefer one of:
+
+- the `PGPASSWORD` environment variable
+- a `~/.pgpass` entry
+
+If you do pass `-W`, `init` stores the password in `.pgbranch/config.json`
+**in plain text** and prints a warning telling you so.
 
 ## Remotes
 
@@ -395,6 +563,28 @@ pgbranch remote add origin s3://bucket/prefix --no-credentials
 ```
 
 Then set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in your environment.
+
+## Troubleshooting
+
+**"database is being accessed by other users"** -- normal transient noise
+from the `template` clone strategy (typically a TimescaleDB background
+worker reconnecting right after its connection was terminated). pgbranch
+retries automatically up to 5 times with a short backoff. If it still fails
+after that, something is reconnecting persistently -- e.g. a connection
+pooler, or an app process that wasn't actually stopped -- stop it and try
+again.
+
+**The hook doesn't run in a worktree** -- linked worktrees are skipped by
+`sync` (and therefore the hook) by default, since they typically share one
+working database that switches from other worktrees would fight over. Set
+`"follow_worktrees": true` in `.pgbranch/config.json` if you want the hook
+to run there anyway.
+
+**`pg_dump`/`pg_restore` version mismatch** -- the `dump` clone strategy (and
+`push`/`pull`) shells out to `pg_dump`/`pg_restore`, which must be on `PATH`
+and should not be older than the server's version; an older client can fail
+to dump newer server features. Install matching (or newer) PostgreSQL client
+tools if you see version-related dump/restore errors.
 
 ## Using pgbranch as a Library
 
@@ -522,9 +712,16 @@ behavior described under [Credentials](#credentials).
 ## Caveats
 
 - This is for **local development only**. Don't use this in production.
-- Checkout will **drop your working database**. Uncommitted changes are gone.
+- Checkout **replaces your working database(s)**. Uncommitted changes are
+  gone, and active connections are terminated -- fine as long as your app
+  isn't connected or running.
+- Checkout is a safe swap: the target snapshot is cloned into a temporary
+  database first, and only swapped into place once that clone succeeds. If
+  cloning fails, your working database is left untouched and the temporary
+  database is dropped.
 - Snapshots are full database copies. They take disk space.
-- Active connections to the database will be terminated on checkout.
+- `push`, `pull`, `diff` and `merge` only operate on the primary (first
+  configured) database; the rest are ignored by those commands.
 
 ## Star History
 
