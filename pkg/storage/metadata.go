@@ -20,7 +20,23 @@ type Branch struct {
 	CreatedAt      time.Time `json:"created_at"`
 	LastCheckoutAt time.Time `json:"last_checkout_at,omitempty"`
 	Parent         string    `json:"parent,omitempty"`
-	Snapshot       string    `json:"snapshot"`
+
+	// Snapshots maps each working database name to its snapshot database
+	// name for this branch.
+	Snapshots map[string]string `json:"snapshots,omitempty"`
+
+	// Snapshot is the snapshot database name for the primary (first
+	// configured) database. Deprecated: use Snapshots. Old metadata files
+	// that only have this field are migrated in memory by
+	// Metadata.MigrateSnapshots. Kept populated for the primary database so
+	// library callers that read it directly do not break.
+	Snapshot string `json:"snapshot,omitempty"`
+}
+
+// SnapshotFor returns the snapshot database name for the given working
+// database, or "" if the branch has no snapshot for it.
+func (b *Branch) SnapshotFor(db string) string {
+	return b.Snapshots[db]
 }
 
 // IsStale returns true if the branch hasn't been accessed in the specified
@@ -117,16 +133,40 @@ func (m *Metadata) Save() error {
 	return nil
 }
 
-// AddBranch creates and adds a new branch to the metadata.
-func (m *Metadata) AddBranch(name, parent, snapshotFile string) *Branch {
+// AddBranch creates and adds a new branch to the metadata. snapshots maps
+// each working database name to its snapshot database name for this branch.
+func (m *Metadata) AddBranch(name, parent string, snapshots map[string]string) *Branch {
 	branch := &Branch{
 		Name:      name,
 		CreatedAt: time.Now(),
 		Parent:    parent,
-		Snapshot:  snapshotFile,
+		Snapshots: snapshots,
 	}
 	m.Branches[name] = branch
 	return branch
+}
+
+// MigrateSnapshots migrates branches that only have the legacy Snapshot
+// field set (from an older metadata file) to the Snapshots map, keyed by
+// primary. It is a no-op for branches that already have Snapshots set. It
+// also keeps Snapshot in sync with Snapshots[primary] going the other way,
+// for branches created after the migration to multiple databases whose
+// Snapshots map does not (yet) have an entry for primary.
+func (m *Metadata) MigrateSnapshots(primary string) {
+	if primary == "" {
+		return
+	}
+	for _, b := range m.Branches {
+		if len(b.Snapshots) == 0 && b.Snapshot != "" {
+			b.Snapshots = map[string]string{primary: b.Snapshot}
+			continue
+		}
+		if b.Snapshot == "" {
+			if snap, ok := b.Snapshots[primary]; ok {
+				b.Snapshot = snap
+			}
+		}
+	}
 }
 
 // GetBranch returns the branch with the given name, or false if not found.

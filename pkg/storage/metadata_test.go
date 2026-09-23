@@ -34,11 +34,11 @@ func TestNewMetadata(t *testing.T) {
 func TestAddBranch(t *testing.T) {
 	meta := NewMetadata("")
 
-	branch := meta.AddBranch("feature-1", "", "feature-1.dump")
+	branch := meta.AddBranch("feature-1", "", map[string]string{"db": "feature-1.dump"})
 
 	assert.Equal(t, "feature-1", branch.Name)
 	assert.Equal(t, "", branch.Parent)
-	assert.Equal(t, "feature-1.dump", branch.Snapshot)
+	assert.Equal(t, "feature-1.dump", branch.SnapshotFor("db"))
 	assert.NotZero(t, branch.CreatedAt)
 
 	assert.True(t, meta.BranchExists("feature-1"))
@@ -48,16 +48,16 @@ func TestAddBranch(t *testing.T) {
 func TestAddBranchWithParent(t *testing.T) {
 	meta := NewMetadata("")
 
-	meta.AddBranch("main", "", "main.dump")
+	meta.AddBranch("main", "", map[string]string{"db": "main.dump"})
 
-	branch := meta.AddBranch("feature-1", "main", "feature-1.dump")
+	branch := meta.AddBranch("feature-1", "main", map[string]string{"db": "feature-1.dump"})
 
 	assert.Equal(t, "main", branch.Parent)
 }
 
 func TestGetBranch(t *testing.T) {
 	meta := NewMetadata("")
-	meta.AddBranch("feature-1", "", "feature-1.dump")
+	meta.AddBranch("feature-1", "", map[string]string{"db": "feature-1.dump"})
 
 	branch, ok := meta.GetBranch("feature-1")
 	assert.True(t, ok)
@@ -69,8 +69,8 @@ func TestGetBranch(t *testing.T) {
 
 func TestDeleteBranch(t *testing.T) {
 	meta := NewMetadata("")
-	meta.AddBranch("feature-1", "", "feature-1.dump")
-	meta.AddBranch("feature-2", "", "feature-2.dump")
+	meta.AddBranch("feature-1", "", map[string]string{"db": "feature-1.dump"})
+	meta.AddBranch("feature-2", "", map[string]string{"db": "feature-2.dump"})
 
 	err := meta.DeleteBranch("feature-1")
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestDeleteBranch(t *testing.T) {
 
 func TestBranchExists(t *testing.T) {
 	meta := NewMetadata("")
-	meta.AddBranch("feature-1", "", "feature-1.dump")
+	meta.AddBranch("feature-1", "", map[string]string{"db": "feature-1.dump"})
 
 	assert.True(t, meta.BranchExists("feature-1"))
 	assert.False(t, meta.BranchExists("feature-2"))
@@ -96,9 +96,9 @@ func TestListBranches(t *testing.T) {
 	branches := meta.ListBranches()
 	assert.Len(t, branches, 0)
 
-	meta.AddBranch("feature-1", "", "feature-1.dump")
-	meta.AddBranch("feature-2", "", "feature-2.dump")
-	meta.AddBranch("main", "", "main.dump")
+	meta.AddBranch("feature-1", "", map[string]string{"db": "feature-1.dump"})
+	meta.AddBranch("feature-2", "", map[string]string{"db": "feature-2.dump"})
+	meta.AddBranch("main", "", map[string]string{"db": "main.dump"})
 
 	branches = meta.ListBranches()
 	assert.Len(t, branches, 3)
@@ -109,7 +109,7 @@ func TestListBranches(t *testing.T) {
 
 func TestSetCurrentBranch(t *testing.T) {
 	meta := NewMetadata("")
-	meta.AddBranch("feature-1", "", "feature-1.dump")
+	meta.AddBranch("feature-1", "", map[string]string{"db": "feature-1.dump"})
 
 	err := meta.SetCurrentBranch("feature-1")
 	require.NoError(t, err)
@@ -128,8 +128,8 @@ func TestMetadataSaveAndLoad(t *testing.T) {
 	dir := newTestWorkspace(t)
 
 	meta := NewMetadata(dir)
-	meta.AddBranch("main", "", "main.dump")
-	meta.AddBranch("feature-1", "main", "feature-1.dump")
+	meta.AddBranch("main", "", map[string]string{"db": "main.dump"})
+	meta.AddBranch("feature-1", "main", map[string]string{"db": "feature-1.dump"})
 	meta.CurrentBranch = "feature-1"
 
 	err := meta.Save()
@@ -146,7 +146,7 @@ func TestMetadataSaveAndLoad(t *testing.T) {
 	branch, ok := loadedMeta.GetBranch("feature-1")
 	assert.True(t, ok)
 	assert.Equal(t, "main", branch.Parent)
-	assert.Equal(t, "feature-1.dump", branch.Snapshot)
+	assert.Equal(t, "feature-1.dump", branch.SnapshotFor("db"))
 }
 
 func TestLoadMetadataCreatesNewIfNotExists(t *testing.T) {
@@ -178,16 +178,16 @@ func TestMetadataPath(t *testing.T) {
 func TestGetStaleBranches(t *testing.T) {
 	meta := NewMetadata("")
 
-	mainBranch := meta.AddBranch("main", "", "main.dump")
+	mainBranch := meta.AddBranch("main", "", map[string]string{"db": "main.dump"})
 	mainBranch.CreatedAt = mainBranch.CreatedAt.AddDate(0, 0, -30)
 
-	feature1 := meta.AddBranch("feature-1", "main", "feature-1.dump")
+	feature1 := meta.AddBranch("feature-1", "main", map[string]string{"db": "feature-1.dump"})
 	feature1.CreatedAt = feature1.CreatedAt.AddDate(0, 0, -10) // 10 days old
 
-	feature2 := meta.AddBranch("feature-2", "main", "feature-2.dump")
+	feature2 := meta.AddBranch("feature-2", "main", map[string]string{"db": "feature-2.dump"})
 	feature2.CreatedAt = feature2.CreatedAt.AddDate(0, 0, -3) // 3 days old (not stale for 7 days)
 
-	feature3 := meta.AddBranch("feature-3", "feature-1", "feature-3.dump")
+	feature3 := meta.AddBranch("feature-3", "feature-1", map[string]string{"db": "feature-3.dump"})
 	feature3.CreatedAt = feature3.CreatedAt.AddDate(0, 0, -15) // 15 days old
 
 	staleBranches := meta.GetStaleBranches(7)
@@ -208,7 +208,7 @@ func TestGetStaleBranches(t *testing.T) {
 func TestGetStaleBranchesExcludesRootBranch(t *testing.T) {
 	meta := NewMetadata("")
 
-	mainBranch := meta.AddBranch("main", "", "main.dump")
+	mainBranch := meta.AddBranch("main", "", map[string]string{"db": "main.dump"})
 	mainBranch.CreatedAt = mainBranch.CreatedAt.AddDate(0, 0, -100)
 	staleBranches := meta.GetStaleBranches(7)
 
@@ -244,10 +244,47 @@ func TestDaysSinceLastAccess(t *testing.T) {
 	})
 }
 
+func TestMigrateSnapshots(t *testing.T) {
+	t.Run("migrates legacy snapshot field to map", func(t *testing.T) {
+		meta := NewMetadata("")
+		meta.Branches["main"] = &Branch{Name: "main", Snapshot: "app_pgbranch_main"}
+
+		meta.MigrateSnapshots("app")
+
+		branch := meta.Branches["main"]
+		assert.Equal(t, "app_pgbranch_main", branch.Snapshots["app"])
+		assert.Equal(t, "app_pgbranch_main", branch.Snapshot)
+	})
+
+	t.Run("leaves branches with a snapshots map untouched", func(t *testing.T) {
+		meta := NewMetadata("")
+		meta.Branches["main"] = &Branch{
+			Name:      "main",
+			Snapshots: map[string]string{"app": "app_pgbranch_main", "app_identity": "app_identity_pgbranch_main"},
+		}
+
+		meta.MigrateSnapshots("app")
+
+		branch := meta.Branches["main"]
+		assert.Len(t, branch.Snapshots, 2)
+		assert.Equal(t, "app_pgbranch_main", branch.Snapshot)
+	})
+
+	t.Run("no-op for empty primary", func(t *testing.T) {
+		meta := NewMetadata("")
+		meta.Branches["main"] = &Branch{Name: "main", Snapshot: "app_pgbranch_main"}
+
+		meta.MigrateSnapshots("")
+
+		branch := meta.Branches["main"]
+		assert.Nil(t, branch.Snapshots)
+	})
+}
+
 func TestUpdateLastCheckout(t *testing.T) {
 	t.Run("updates existing branch", func(t *testing.T) {
 		meta := NewMetadata("")
-		meta.AddBranch("feature-1", "", "feature-1.dump")
+		meta.AddBranch("feature-1", "", map[string]string{"db": "feature-1.dump"})
 
 		before := time.Now()
 		err := meta.UpdateLastCheckout("feature-1")
