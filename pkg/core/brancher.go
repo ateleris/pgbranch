@@ -500,12 +500,19 @@ func (b *Brancher) GoneBranches(localGitBranches []string) []string {
 const DefaultStaleDays = 7
 
 // GetStaleBranches returns branches that haven't been accessed in the
-// specified number of days, sorted by staleness (oldest first).
+// specified number of days, sorted by staleness (oldest first). The current
+// branch and the baseline branch are never reported as stale, so `prune`
+// can never suggest deleting either of them.
 func (b *Brancher) GetStaleBranches(staleDays int) []BranchInfo {
+	baseline := b.Config.BaselineBranchOrDefault()
+
 	staleBranches := b.Metadata.GetStaleBranches(staleDays)
 	result := make([]BranchInfo, 0, len(staleBranches))
 
 	for _, branch := range staleBranches {
+		if branch.Name == b.Metadata.CurrentBranch || branch.Name == baseline {
+			continue
+		}
 		result = append(result, BranchInfo{
 			Name:      branch.Name,
 			IsCurrent: branch.Name == b.Metadata.CurrentBranch,

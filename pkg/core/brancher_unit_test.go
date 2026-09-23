@@ -244,3 +244,36 @@ func TestGetStaleBranchesUsesLastCheckout(t *testing.T) {
 
 	assert.Empty(t, b.GetStaleBranches(DefaultStaleDays))
 }
+
+// The current branch must never be reported as stale, even when it has a
+// non-empty parent (so the "root branch" heuristic doesn't catch it) and
+// hasn't been checked out again since it became current -- being actively
+// worked on for a long time without switching away is not the same as
+// being abandoned. Otherwise `prune -y` could delete the branch you are on.
+func TestGetStaleBranchesExcludesCurrentBranch(t *testing.T) {
+	meta := storage.NewMetadata(t.TempDir())
+
+	current := meta.AddBranch("in-progress", "main", map[string]string{"acme_dev": "snap"})
+	current.CreatedAt = time.Now().AddDate(0, 0, -90)
+	current.LastCheckoutAt = time.Now().AddDate(0, 0, -90)
+	meta.CurrentBranch = "in-progress"
+
+	b := New(&config.Config{Database: "acme_dev"}, meta)
+
+	assert.Empty(t, b.GetStaleBranches(DefaultStaleDays), "the current branch must never be pruned as stale")
+}
+
+// The baseline branch must never be reported as stale even if it is not a
+// root branch (e.g. it was recreated from another branch after being
+// deleted), matching GoneBranches' baseline exclusion.
+func TestGetStaleBranchesExcludesBaselineBranch(t *testing.T) {
+	meta := storage.NewMetadata(t.TempDir())
+
+	baseline := meta.AddBranch("main", "feature", map[string]string{"acme_dev": "snap"})
+	baseline.CreatedAt = time.Now().AddDate(0, 0, -90)
+	baseline.LastCheckoutAt = time.Now().AddDate(0, 0, -90)
+
+	b := New(&config.Config{Database: "acme_dev", BaselineBranch: "main"}, meta)
+
+	assert.Empty(t, b.GetStaleBranches(DefaultStaleDays), "the baseline branch must never be pruned as stale")
+}
