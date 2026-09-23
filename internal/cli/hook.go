@@ -2,59 +2,14 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/internal/gitx"
+	"github.com/le-vlad/pgbranch/internal/hooks"
+	"github.com/le-vlad/pgbranch/pkg/config"
 )
-
-const postCheckoutHook = `#!/bin/sh
-# pgbranch post-checkout hook
-# Automatically switches database branch when git branch changes
-
-# post-checkout receives: previous HEAD, new HEAD, flag (1=branch checkout, 0=file checkout)
-PREV_HEAD="$1"
-NEW_HEAD="$2"
-CHECKOUT_TYPE="$3"
-
-# Only run on branch checkouts, not file checkouts
-if [ "$CHECKOUT_TYPE" != "1" ]; then
-    exit 0
-fi
-
-# Get the new branch name
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-# Skip if we're in detached HEAD state
-if [ "$BRANCH" = "HEAD" ]; then
-    exit 0
-fi
-
-# Check if pgbranch is initialized in this directory
-if [ ! -d ".pgbranch" ]; then
-    exit 0
-fi
-
-# Check if this branch exists in pgbranch
-if pgbranch branch 2>/dev/null | grep -q "^[* ] $BRANCH$"; then
-    # Branch exists, checkout if not already current
-    if ! pgbranch branch 2>/dev/null | grep -q "^\* $BRANCH$"; then
-        if pgbranch checkout "$BRANCH" 2>/dev/null; then
-            echo "pgbranch: Switched database to branch '$BRANCH'"
-        fi
-    fi
-else
-    # Branch doesn't exist, create it then checkout
-    if pgbranch branch "$BRANCH" 2>/dev/null; then
-        echo "pgbranch: Created database branch '$BRANCH'"
-        if pgbranch checkout "$BRANCH" 2>/dev/null; then
-            echo "pgbranch: Switched database to branch '$BRANCH'"
-        fi
-    fi
-fi
-`
 
 var hookCmd = &cobra.Command{
 	Use:   "hook",
@@ -70,15 +25,12 @@ Subcommands:
 var hookInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install git hook for automatic branch switching",
-	Long: `Install a post-checkout git hook that automatically runs
-'pgbranch checkout <branch>' when you switch git branches.
-
-This allows seamless synchronization between your git branches
-and database states.
+	Long: `Install a post-checkout git hook that runs 'pgbranch sync --hook'
+when you switch git branches, keeping database branches in sync.
 
 Example:
   pgbranch hook install
-  git checkout feature-x  # automatically runs: pgbranch checkout feature-x`,
+  git checkout feature-x  # automatically syncs the database branch`,
 	RunE: runHookInstall,
 }
 
@@ -97,93 +49,63 @@ func init() {
 	hookCmd.AddCommand(hookUninstallCmd)
 }
 
-func getGitHooksDir() (string, error) {
-	// Find the git directory
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
-	output, err := cmd.Output()
+func openRepoForHooks() (*gitx.Repo, error) {
+	dir, err := config.WorkingDir()
 	if err != nil {
-		return "", fmt.Errorf("not a git repository")
+		return nil, err
 	}
-
-	gitDir := string(output[:len(output)-1])
-	hooksDir := filepath.Join(gitDir, "hooks")
-
-	return hooksDir, nil
+	return gitx.Open(dir)
 }
 
 func runHookInstall(cmd *cobra.Command, args []string) error {
-	hooksDir, err := getGitHooksDir()
+	repo, err := openRepoForHooks()
 	if err != nil {
 		return err
 	}
 
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		return fmt.Errorf("failed to create hooks directory: %w", err)
-	}
-
-	hookPath := filepath.Join(hooksDir, "post-checkout")
-
-	if _, err := os.Stat(hookPath); err == nil {
-		content, err := os.ReadFile(hookPath)
-		if err != nil {
-			return fmt.Errorf("failed to read existing hook: %w", err)
-		}
-
-		if string(content) == postCheckoutHook {
-			fmt.Println("pgbranch hook is already installed")
-			return nil
-		}
-
-		yellow := color.New(color.FgYellow).SprintFunc()
-		fmt.Printf("%s A post-checkout hook already exists.\n", yellow("!"))
-		fmt.Println("  To avoid conflicts, please manually integrate pgbranch into your existing hook.")
-		fmt.Println("  Or backup and remove the existing hook, then run this command again.")
-		return fmt.Errorf("existing hook found at %s", hookPath)
-	}
-
-	if err := os.WriteFile(hookPath, []byte(postCheckoutHook), 0755); err != nil {
-		return fmt.Errorf("failed to write hook: %w", err)
+	result, err := hooks.Install(repo)
+	if err != nil {
+		return err
 	}
 
 	green := color.New(color.FgGreen).SprintFunc()
-	fmt.Printf("%s Git hook installed successfully!\n", green("✓"))
-	fmt.Println()
-	fmt.Println("Now when you run 'git checkout <branch>', pgbranch will")
-	fmt.Println("automatically switch to the matching database branch if it exists.")
+	switch result.Status {
+	case hooks.Installed:
+		fmt.Printf("%s Git hook installed at %s\n", green("✓"), result.Path)
+		fmt.Println()
+		fmt.Println("Now when you run 'git checkout <branch>', pgbranch will")
+		fmt.Println("automatically switch (or create) the matching database branch.")
+	case hooks.Appended:
+		fmt.Printf("%s Added pgbranch to the existing hook at %s\n", green("✓"), result.Path)
+	case hooks.AlreadyInstalled:
+		fmt.Println("pgbranch hook is already installed")
+	case hooks.ManualRequired:
+		fmt.Println(result.Instructions)
+	}
 
 	return nil
 }
 
 func runHookUninstall(cmd *cobra.Command, args []string) error {
-	hooksDir, err := getGitHooksDir()
+	repo, err := openRepoForHooks()
 	if err != nil {
 		return err
 	}
 
-	hookPath := filepath.Join(hooksDir, "post-checkout")
-
-	content, err := os.ReadFile(hookPath)
-	if os.IsNotExist(err) {
-		fmt.Println("No post-checkout hook found")
-		return nil
-	}
+	result, err := hooks.Uninstall(repo)
 	if err != nil {
-		return fmt.Errorf("failed to read hook: %w", err)
-	}
-
-	if string(content) != postCheckoutHook {
-		yellow := color.New(color.FgYellow).SprintFunc()
-		fmt.Printf("%s The post-checkout hook was not installed by pgbranch.\n", yellow("!"))
-		fmt.Println("  Refusing to remove it to avoid breaking your workflow.")
-		return fmt.Errorf("hook was not installed by pgbranch")
-	}
-
-	if err := os.Remove(hookPath); err != nil {
-		return fmt.Errorf("failed to remove hook: %w", err)
+		return err
 	}
 
 	green := color.New(color.FgGreen).SprintFunc()
-	fmt.Printf("%s Git hook uninstalled successfully\n", green("✓"))
+	switch result.Status {
+	case hooks.Removed:
+		fmt.Printf("%s Git hook removed (%s)\n", green("✓"), result.Path)
+	case hooks.LinesRemoved:
+		fmt.Printf("%s Removed pgbranch from %s\n", green("✓"), result.Path)
+	case hooks.NotInstalled:
+		fmt.Println("No pgbranch hook found")
+	}
 
 	return nil
 }

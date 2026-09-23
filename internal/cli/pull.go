@@ -106,7 +106,8 @@ Examples:
 				}
 			}
 
-			snapshotDBName := storage.SnapshotDBName(brancher.Config.Database, targetName)
+			primary := brancher.Config.PrimaryDatabase()
+			snapshotDBName := storage.SnapshotDBName(primary, targetName)
 
 			fmt.Printf("Restoring to local snapshot...\n")
 
@@ -114,7 +115,8 @@ Examples:
 				return fmt.Errorf("failed to restore snapshot: %w", err)
 			}
 
-			brancher.Metadata.AddBranch(targetName, "", snapshotDBName)
+			branch := brancher.Metadata.AddBranch(targetName, "", map[string]string{primary: snapshotDBName})
+			branch.Snapshot = snapshotDBName
 
 			if err := brancher.Metadata.Save(); err != nil {
 				brancher.Client.DeleteSnapshot(cmd.Context(), snapshotDBName)

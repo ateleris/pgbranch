@@ -44,10 +44,17 @@ func Execute() {
 	}
 }
 
-// workspace returns the directory the CLI operates on: the current working
-// directory. Library callers pass their workspace directory explicitly.
+// workspace returns the directory the CLI operates on: the nearest
+// .pgbranch directory found by walking up from the current working
+// directory, falling back to the git top-level directory or main worktree
+// root, and finally the current working directory itself. Library callers
+// pass their workspace directory explicitly.
 func workspace() (string, error) {
-	return config.WorkingDir()
+	cwd, err := config.WorkingDir()
+	if err != nil {
+		return "", err
+	}
+	return findWorkspace(cwd)
 }
 
 // openBrancher opens the pgbranch workspace in the current working directory.
