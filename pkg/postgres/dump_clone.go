@@ -1,0 +1,122 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os/exec"
+)
+
+// checkDumpToolsAvailable verifies pg_dump and pg_restore are on PATH,
+// returning an error with an install hint if not.
+func checkDumpToolsAvailable() error {
+	for _, bin := range []string{"pg_dump", "pg_restore"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			return fmt.Errorf(
+				"%s not found in PATH: install the PostgreSQL client tools "+
+					"(e.g. `apt install postgresql-client`, `brew install libpq`) "+
+					"to use the dump clone strategy",
+				bin,
+			)
+		}
+	}
+	return nil
+}
+
+// execOnDB runs a single statement against db using a dedicated connection.
+func (c *Client) execOnDB(ctx context.Context, db, sql string) error {
+	conn, err := c.connect(ctx, db)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close(ctx) }()
+
+	_, err = conn.Exec(ctx, sql)
+	return err
+}
+
+// cloneDump clones src into dst by streaming pg_dump into pg_restore. dst is
+// created empty first. If src has the timescaledb extension installed, dst
+// goes through timescaledb_pre_restore/timescaledb_post_restore around the
+// restore, matching TimescaleDB's documented pg_dump/pg_restore workflow:
+// CREATE EXTENSION, pre_restore (which sets the timescaledb.restoring GUC at
+// the database level via ALTER DATABASE, so it is visible to the separate
+// session pg_restore connects with), restore, then always post_restore.
+func (c *Client) cloneDump(ctx context.Context, src, dst string) error {
+	if err := checkDumpToolsAvailable(); err != nil {
+		return err
+	}
+
+	if err := c.CreateEmptyDatabase(ctx, dst); err != nil {
+		return fmt.Errorf("failed to create destination database: %w", err)
+	}
+
+	hasTimescale, err := c.HasExtension(ctx, src, "timescaledb")
+	if err != nil {
+		return fmt.Errorf("failed to check source extensions: %w", err)
+	}
+
+	if hasTimescale {
+		if err := c.execOnDB(ctx, dst, "CREATE EXTENSION IF NOT EXISTS timescaledb"); err != nil {
+			return fmt.Errorf("failed to create timescaledb extension: %w", err)
+		}
+		if err := c.execOnDB(ctx, dst, "SELECT timescaledb_pre_restore()"); err != nil {
+			return fmt.Errorf("failed to run timescaledb_pre_restore: %w", err)
+		}
+		// timescaledb_post_restore must run whether or not the restore
+		// itself succeeds, otherwise dst is left with timescaledb.restoring
+		// permanently set.
+		defer func() {
+			_ = c.execOnDB(ctx, dst, "SELECT timescaledb_post_restore()")
+		}()
+	}
+
+	if err := c.streamDumpRestore(ctx, src, dst); err != nil {
+		return err
+	}
+
+	srcCount, err := c.TableCount(ctx, src)
+	if err != nil {
+		return fmt.Errorf("failed to count source tables: %w", err)
+	}
+	dstCount, err := c.TableCount(ctx, dst)
+	if err != nil {
+		return fmt.Errorf("failed to count destination tables: %w", err)
+	}
+	if dstCount < srcCount {
+		return fmt.Errorf(
+			"restore verification failed: destination has %d tables, source has %d",
+			dstCount, srcCount,
+		)
+	}
+
+	return nil
+}
+
+// streamDumpRestore pipes pg_dump of src directly into pg_restore against
+// dst, without buffering the whole dump in memory.
+func (c *Client) streamDumpRestore(ctx context.Context, src, dst string) error {
+	pr, pw := io.Pipe()
+
+	dumpErrCh := make(chan error, 1)
+	go func() {
+		err := c.DumpDatabase(ctx, src, pw, nil)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+		} else {
+			_ = pw.Close()
+		}
+		dumpErrCh <- err
+	}()
+
+	restoreErr := c.RestoreDatabase(ctx, dst, pr)
+	dumpErr := <-dumpErrCh
+
+	if dumpErr != nil {
+		return fmt.Errorf("pg_dump failed: %w", dumpErr)
+	}
+	if restoreErr != nil {
+		return fmt.Errorf("pg_restore failed: %w", restoreErr)
+	}
+	return nil
+}
