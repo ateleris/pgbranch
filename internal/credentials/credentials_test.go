@@ -3,6 +3,7 @@ package credentials
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -66,6 +67,7 @@ func TestDecryptWithWrongKey(t *testing.T) {
 func TestSaveLoadKey(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	key, err := GenerateKey()
 	if err != nil {
@@ -82,7 +84,7 @@ func TestSaveLoadKey(t *testing.T) {
 		t.Fatalf("key file not created: %v", err)
 	}
 
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Errorf("key file permissions = %o, want 0600", info.Mode().Perm())
 	}
 

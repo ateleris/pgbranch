@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -395,6 +396,8 @@ func TestBuildRestoreArgs(t *testing.T) {
 
 func TestBuildEnv(t *testing.T) {
 	t.Run("without password", func(t *testing.T) {
+		t.Setenv("PGPASSWORD", "")
+		require.NoError(t, os.Unsetenv("PGPASSWORD"))
 		cfg := &config.Config{
 			Host: "localhost",
 			Port: 5432,

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -27,6 +28,16 @@ if pgbranch branch 2>/dev/null | grep -q "^[* ] $BRANCH$"; then
 fi
 `
 
+// tempDir returns t.TempDir() with symlinks and Windows short names resolved,
+// so it compares equal to the absolute paths git reports (/private/var on
+// macOS, RUNNER~1 vs runneradmin on Windows).
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return dir
+}
+
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -38,7 +49,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 
 func newTestRepo(t *testing.T) (*gitx.Repo, string) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := tempDir(t)
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "user.email", "test@example.com")
@@ -72,7 +83,9 @@ func TestInstall_Fresh(t *testing.T) {
 
 	info, err := os.Stat(result.Path)
 	require.NoError(t, err)
-	assert.NotZero(t, info.Mode().Perm()&0o111, "hook should be executable")
+	if runtime.GOOS != "windows" {
+		assert.NotZero(t, info.Mode().Perm()&0o111, "hook should be executable")
+	}
 
 	installed, err := IsInstalled(repo)
 	require.NoError(t, err)
@@ -113,7 +126,9 @@ func TestInstall_AppendsToExistingForeignHook(t *testing.T) {
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.NotZero(t, info.Mode().Perm()&0o111, "hook should remain executable")
+	if runtime.GOOS != "windows" {
+		assert.NotZero(t, info.Mode().Perm()&0o111, "hook should remain executable")
+	}
 
 	// re-install must be idempotent: no duplicate guard line.
 	result2, err := Install(repo)
@@ -289,7 +304,7 @@ func TestInstall_LefthookDetected(t *testing.T) {
 func TestInstall_LinkedWorktreeUsesCommonHooksDir(t *testing.T) {
 	_, dir := newTestRepo(t)
 
-	worktreeParent := t.TempDir()
+	worktreeParent := tempDir(t)
 	worktreeDir := filepath.Join(worktreeParent, "linked")
 	runGit(t, dir, "worktree", "add", "-b", "wt-branch", worktreeDir)
 
@@ -324,9 +339,9 @@ func TestInstalledHookInvokesPgbranchSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Installed, result.Status)
 
-	binDir := t.TempDir()
+	binDir := tempDir(t)
 	argsFile := filepath.Join(binDir, "args.txt")
-	fakeScript := "#!/bin/sh\necho \"$@\" > " + argsFile + "\n"
+	fakeScript := "#!/bin/sh\necho \"$@\" > '" + filepath.ToSlash(argsFile) + "'\n"
 	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbranch"), []byte(fakeScript), 0o755))
 
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -346,6 +361,9 @@ func TestInstalledHookInvokesPgbranchSync(t *testing.T) {
 // made the hook's (and so git checkout's) exit status the exit status of
 // `command -v pgbranch`, i.e. 1, whenever pgbranch isn't installed.
 func TestInstalledHook_PgbranchAbsentFromPath_GitCheckoutExitsZero(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("relies on a POSIX PATH without pgbranch")
+	}
 	repo, dir := newTestRepo(t)
 
 	result, err := Install(repo)

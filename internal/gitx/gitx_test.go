@@ -10,6 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// tempDir returns t.TempDir() with symlinks and Windows short names resolved,
+// so it compares equal to the absolute paths git reports (/private/var on
+// macOS, RUNNER~1 vs runneradmin on Windows).
+func tempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return dir
+}
+
 // runGit runs git in dir and fails the test on error.
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
@@ -23,7 +33,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 // newTestRepo creates a temp git repo with one commit on "main".
 func newTestRepo(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
+	dir := tempDir(t)
 	runGit(t, dir, "init", "-b", "main")
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "user.email", "test@example.com")
@@ -44,7 +54,7 @@ func TestOpen(t *testing.T) {
 }
 
 func TestOpen_NotAGitRepo(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDir(t)
 
 	_, err := Open(dir)
 	assert.Error(t, err)
@@ -94,7 +104,7 @@ func TestCommonDirAndGitDir_MainWorktree(t *testing.T) {
 func TestLinkedWorktree(t *testing.T) {
 	dir := newTestRepo(t)
 
-	worktreeParent := t.TempDir()
+	worktreeParent := tempDir(t)
 	worktreeDir := filepath.Join(worktreeParent, "linked")
 	runGit(t, dir, "worktree", "add", "-b", "wt-branch", worktreeDir)
 
@@ -142,7 +152,7 @@ func TestHooksDir_Default(t *testing.T) {
 
 func TestHooksDir_CoreHooksPathAbsolute(t *testing.T) {
 	dir := newTestRepo(t)
-	customHooks := t.TempDir()
+	customHooks := tempDir(t)
 	runGit(t, dir, "config", "core.hooksPath", customHooks)
 
 	repo, err := Open(dir)
