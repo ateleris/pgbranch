@@ -59,6 +59,12 @@ func runReset(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
 	if err := brancher.Reset(cmd.Context(), resetFrom); err != nil {
 		return err
 	}

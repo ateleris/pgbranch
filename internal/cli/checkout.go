@@ -64,6 +64,12 @@ func runCheckout(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
 	name := args[0]
 
 	if autoCreateBranch {

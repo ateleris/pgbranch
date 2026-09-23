@@ -418,6 +418,18 @@ is set -- see [Configuration](#configuration)).
 You can also run `pgbranch sync` by hand at any time -- it reads the current
 git branch instead of hook arguments.
 
+### Concurrent operations
+
+Checkout, branch creation, delete, prune, reset and sync all take an
+exclusive lock on `.pgbranch/lock` while they run, so two of these commands
+(e.g. a hook firing while another one is still in progress) can't race on
+the same working databases. In hook mode, if the lock is already held,
+sync just prints a message and skips -- it never fails your `git
+checkout`. Run outside the hook, a held lock is a normal error. A lock file
+left behind by a crashed process is detected as stale (the PID it names is
+no longer running) and cleared automatically; if that heuristic ever gets
+it wrong, delete `.pgbranch/lock` by hand.
+
 ### Installing the hook
 
 `pgbranch hook install` (also available as `pgbranch init --hook`) writes

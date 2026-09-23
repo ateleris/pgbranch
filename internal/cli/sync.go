@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/le-vlad/pgbranch/internal/gitx"
+	"github.com/le-vlad/pgbranch/internal/lock"
 	"github.com/le-vlad/pgbranch/pkg/config"
 	"github.com/le-vlad/pgbranch/pkg/core"
 )
@@ -156,6 +158,20 @@ func doSync(ctx context.Context, prevHEAD, newHEAD, flag string, hookMode bool) 
 	}) {
 		return nil
 	}
+
+	l, err := lock.Acquire(config.RootDir(dir))
+	if err != nil {
+		if errors.Is(err, lock.ErrLocked) {
+			if hookMode {
+				// Never fail the git operation over this; just skip.
+				fmt.Fprintln(os.Stderr, "pgbranch: another pgbranch operation is in progress, skipping sync")
+				return nil
+			}
+			return fmt.Errorf("%w. If you're sure no other pgbranch command is running, remove %s", err, lock.FileName)
+		}
+		return err
+	}
+	defer func() { _ = l.Release() }()
 
 	existed := brancher.Metadata.BranchExists(gitBranch)
 

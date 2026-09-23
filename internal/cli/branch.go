@@ -69,6 +69,12 @@ func listBranches(b *core.Brancher) error {
 }
 
 func createBranch(ctx context.Context, b *core.Brancher, name, from string) error {
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
 	if err := b.CreateBranch(ctx, name, from); err != nil {
 		return err
 	}

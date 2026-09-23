@@ -128,6 +128,12 @@ func runPrune(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
+
 	fmt.Println()
 	deleted, errors := brancher.PruneBranches(cmd.Context(), toPrune)
 
@@ -200,6 +206,12 @@ func runPruneGone(cmd *cobra.Command, brancher *core.Brancher) error {
 			return nil
 		}
 	}
+
+	l, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = l.Release() }()
 
 	deleted, errs := brancher.PruneBranches(cmd.Context(), gone)
 
