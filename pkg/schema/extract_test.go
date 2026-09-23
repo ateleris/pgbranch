@@ -57,7 +57,7 @@ func (m *mockRows) Scan(dest ...any) error {
 			continue
 		}
 		dv := reflect.ValueOf(dest[i])
-		if dv.Kind() != reflect.Ptr {
+		if dv.Kind() != reflect.Pointer {
 			return fmt.Errorf("dest[%d] is not a pointer", i)
 		}
 		sv := reflect.ValueOf(src)
