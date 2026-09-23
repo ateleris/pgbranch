@@ -284,7 +284,7 @@ func TestDeleteBranch(t *testing.T) {
 
 	err = brancher.DeleteBranch(ctx, "main", false)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot delete current branch")
+	assert.Contains(t, err.Error(), "cannot delete the current branch")
 
 	err = brancher.DeleteBranch(ctx, "main", true)
 	require.NoError(t, err)
