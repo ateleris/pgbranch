@@ -93,7 +93,12 @@ func shouldSync(in syncDecisionInput) bool {
 }
 
 func doSync(ctx context.Context, prevHEAD, newHEAD, flag string, hookMode bool) error {
-	dir, err := workspace()
+	cwd, err := config.WorkingDir()
+	if err != nil {
+		return err
+	}
+
+	dir, err := findWorkspace(cwd)
 	if err != nil {
 		return err
 	}
@@ -102,7 +107,13 @@ func doSync(ctx context.Context, prevHEAD, newHEAD, flag string, hookMode bool) 
 		return nil
 	}
 
-	repo, err := gitx.Open(dir)
+	// Git checks (current branch, linked-worktree detection, in-progress
+	// operations) must describe the process's actual working directory,
+	// not the .pgbranch workspace directory: from a linked worktree, dir
+	// resolves to the main worktree (since .pgbranch is not per-worktree),
+	// which would otherwise make every git check describe the wrong
+	// worktree.
+	repo, err := gitx.Open(cwd)
 	if err != nil {
 		return nil
 	}
