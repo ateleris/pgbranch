@@ -5,6 +5,9 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/internal/gitx"
+	"github.com/le-vlad/pgbranch/pkg/postgres"
 )
 
 var statusCmd = &cobra.Command{
@@ -23,28 +26,76 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-
-	currentBranch, branchCount := brancher.Status()
+	cfg := brancher.Config
 
 	green := color.New(color.FgGreen).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
 
-	fmt.Printf("Database: %s\n", cyan(cfg.Database))
-	fmt.Printf("Host:     %s:%d\n", cfg.Host, cfg.Port)
-	fmt.Println()
+	fmt.Printf("Host: %s:%d\n\n", cfg.Host, cfg.Port)
+
+	currentBranch, branchCount := brancher.Status()
 
 	if currentBranch == "" {
-		yellow := color.New(color.FgYellow).SprintFunc()
-		fmt.Printf("On branch: %s\n", yellow("(none)"))
+		fmt.Printf("DB branch:  %s\n", yellow("(none)"))
 	} else {
-		fmt.Printf("On branch: %s\n", green(currentBranch))
+		fmt.Printf("DB branch:  %s\n", green(currentBranch))
+	}
+	fmt.Printf("Branches:   %d\n", branchCount)
+
+	dir, err := workspace()
+	if err == nil {
+		if repo, err := gitx.Open(dir); err == nil {
+			if gitBranch, err := repo.CurrentBranch(); err == nil && gitBranch != "" {
+				fmt.Printf("Git branch: %s\n", gitBranch)
+				if currentBranch != "" && gitBranch != currentBranch {
+					fmt.Printf("%s git branch and database branch differ\n", yellow("!"))
+				}
+			}
+		}
 	}
 
-	fmt.Printf("Branches:  %d\n", branchCount)
+	fmt.Println()
+	fmt.Println("Databases:")
+
+	ctx := cmd.Context()
+	for _, db := range cfg.Databases {
+		strategy, err := brancher.Client.ResolveStrategy(ctx, db.Name, mustParseStrategy(db.Strategy))
+		strategyLabel := string(strategy)
+		if err != nil {
+			strategyLabel = fmt.Sprintf("%s (unresolved: %v)", db.Strategy, err)
+		}
+
+		fmt.Printf("  %s\n", cyan(db.Name))
+		fmt.Printf("    strategy: %s\n", strategyLabel)
+
+		var snapshot string
+		if currentBranch != "" {
+			if branch, ok := brancher.Metadata.GetBranch(currentBranch); ok {
+				snapshot = branch.SnapshotFor(db.Name)
+			}
+		}
+		if snapshot != "" {
+			exists, err := brancher.Client.Exists(ctx, snapshot)
+			existsLabel := "unknown"
+			if err == nil {
+				existsLabel = fmt.Sprintf("%v", exists)
+			}
+			fmt.Printf("    snapshot: %s (exists: %s)\n", snapshot, existsLabel)
+		}
+
+		if size, err := brancher.Client.Size(ctx, db.Name); err == nil {
+			fmt.Printf("    size:     %s\n", formatSize(size))
+		}
+	}
 
 	return nil
+}
+
+func mustParseStrategy(s string) postgres.Strategy {
+	strategy, err := postgres.ParseStrategy(s)
+	if err != nil {
+		return postgres.StrategyAuto
+	}
+	return strategy
 }
