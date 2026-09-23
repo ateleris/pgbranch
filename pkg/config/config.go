@@ -24,6 +24,17 @@ const (
 // directory. Callers can test for it with errors.Is.
 var ErrNotInitialized = errors.New("pgbranch not initialized")
 
+// DatabaseConfig describes one database managed by pgbranch: its name and
+// the clone strategy used when creating or restoring its snapshots.
+type DatabaseConfig struct {
+	// Name is the working database name.
+	Name string `json:"name"`
+
+	// Strategy is the clone strategy: "auto" (default), "template", or
+	// "dump". Empty means "auto".
+	Strategy string `json:"strategy,omitempty"`
+}
+
 // RemoteConfig holds configuration for a remote storage backend.
 type RemoteConfig struct {
 	// Name is the name of this remote (e.g., "origin")
@@ -47,11 +58,33 @@ type Config struct {
 	// callers that build a Config in memory must set it before calling Save.
 	Root string `json:"-"`
 
-	Database string `json:"database"`
+	// Databases lists the databases managed by pgbranch. Loading an older
+	// config that only has Database yields one entry here with strategy
+	// "auto". Database is kept in sync with Databases[0].Name for library
+	// callers that read it directly.
+	Databases []DatabaseConfig `json:"databases,omitempty"`
+
+	// Database is the primary (first) database name. Deprecated: use
+	// Databases. Kept for backward compatibility with old config files and
+	// library callers.
+	Database string `json:"database,omitempty"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	User     string `json:"user"`
 	Password string `json:"password,omitempty"`
+
+	// BaselineBranch is the branch new branches are created from by
+	// default, and the branch prune --gone never removes. Defaults to
+	// "main".
+	BaselineBranch string `json:"baseline_branch,omitempty"`
+
+	// NewBranchFrom controls where a newly auto-created branch (e.g. via
+	// `sync`) is cloned from: "baseline" (default) or "current".
+	NewBranchFrom string `json:"new_branch_from,omitempty"`
+
+	// FollowWorktrees enables the post-checkout hook in linked worktrees.
+	// Defaults to false.
+	FollowWorktrees bool `json:"follow_worktrees,omitempty"`
 
 	Remotes map[string]*RemoteConfig `json:"remotes,omitempty"`
 
@@ -61,10 +94,63 @@ type Config struct {
 // DefaultConfig returns a new Config with default values for PostgreSQL connection.
 func DefaultConfig() *Config {
 	return &Config{
-		Host: "localhost",
-		Port: 5432,
-		User: "postgres",
+		Host:           "localhost",
+		Port:           5432,
+		User:           "postgres",
+		BaselineBranch: "main",
+		NewBranchFrom:  "baseline",
 	}
+}
+
+// Normalize fills in defaults and migrates old single-database
+// configuration in memory. It is called by Load and Initialize; library
+// callers that build a Config by hand should call it before use.
+func (c *Config) Normalize() {
+	if len(c.Databases) == 0 && c.Database != "" {
+		c.Databases = []DatabaseConfig{{Name: c.Database, Strategy: ""}}
+	}
+	if len(c.Databases) > 0 {
+		c.Database = c.Databases[0].Name
+	}
+	if c.BaselineBranch == "" {
+		c.BaselineBranch = "main"
+	}
+	if c.NewBranchFrom == "" {
+		c.NewBranchFrom = "baseline"
+	}
+}
+
+// PrimaryDatabase returns the first configured database name.
+func (c *Config) PrimaryDatabase() string {
+	if len(c.Databases) > 0 {
+		return c.Databases[0].Name
+	}
+	return c.Database
+}
+
+// DatabaseNames returns the names of all configured databases, in order.
+func (c *Config) DatabaseNames() []string {
+	names := make([]string, len(c.Databases))
+	for i, db := range c.Databases {
+		names[i] = db.Name
+	}
+	return names
+}
+
+// BaselineBranchOrDefault returns BaselineBranch, or "main" if unset.
+func (c *Config) BaselineBranchOrDefault() string {
+	if c.BaselineBranch != "" {
+		return c.BaselineBranch
+	}
+	return "main"
+}
+
+// NewBranchFromOrDefault returns NewBranchFrom, or "baseline" if unset.
+func (c *Config) NewBranchFromOrDefault() string {
+	if c.NewBranchFrom != "" {
+		return c.NewBranchFrom
+	}
+	return "baseline"
 }
 
 // RootDir returns the path to the pgbranch configuration directory inside
@@ -120,6 +206,7 @@ func Load(dir string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 	cfg.Root = dir
+	cfg.Normalize()
 
 	return &cfg, nil
 }
@@ -162,11 +249,37 @@ func (c *Config) ConnectionURLForDB(dbName string) string {
 		c.User, c.Host, c.Port, dbName)
 }
 
-// Validate checks that all required configuration fields are set.
+// Validate checks that all required configuration fields are set: at least
+// one database with a unique name and a valid strategy, a valid
+// new_branch_from, and the connection settings.
 func (c *Config) Validate() error {
-	if c.Database == "" {
+	if len(c.Databases) == 0 {
 		return fmt.Errorf("database name is required")
 	}
+
+	seen := make(map[string]bool, len(c.Databases))
+	for _, db := range c.Databases {
+		if db.Name == "" {
+			return fmt.Errorf("database name is required")
+		}
+		if seen[db.Name] {
+			return fmt.Errorf("duplicate database name %q", db.Name)
+		}
+		seen[db.Name] = true
+
+		switch db.Strategy {
+		case "", "auto", "template", "dump":
+		default:
+			return fmt.Errorf("invalid clone strategy %q for database %q (must be one of: auto, template, dump)", db.Strategy, db.Name)
+		}
+	}
+
+	switch c.NewBranchFrom {
+	case "", "baseline", "current":
+	default:
+		return fmt.Errorf("invalid new_branch_from %q (must be one of: baseline, current)", c.NewBranchFrom)
+	}
+
 	if c.Host == "" {
 		return fmt.Errorf("host is required")
 	}

@@ -29,21 +29,31 @@ func TestValidate(t *testing.T) {
 		{
 			name: "valid config",
 			config: &Config{
-				Database: "testdb",
-				Host:     "localhost",
-				Port:     5432,
-				User:     "postgres",
+				Databases: []DatabaseConfig{{Name: "testdb"}},
+				Host:      "localhost",
+				Port:      5432,
+				User:      "postgres",
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid config with password",
 			config: &Config{
-				Database: "testdb",
-				Host:     "localhost",
-				Port:     5432,
-				User:     "postgres",
-				Password: "secret",
+				Databases: []DatabaseConfig{{Name: "testdb"}},
+				Host:      "localhost",
+				Port:      5432,
+				User:      "postgres",
+				Password:  "secret",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid config with multiple databases and strategies",
+			config: &Config{
+				Databases: []DatabaseConfig{{Name: "app"}, {Name: "app_identity", Strategy: "dump"}},
+				Host:      "localhost",
+				Port:      5432,
+				User:      "postgres",
 			},
 			wantErr: false,
 		},
@@ -58,11 +68,56 @@ func TestValidate(t *testing.T) {
 			errMsg:  "database name is required",
 		},
 		{
+			name: "empty database name",
+			config: &Config{
+				Databases: []DatabaseConfig{{Name: ""}},
+				Host:      "localhost",
+				Port:      5432,
+				User:      "postgres",
+			},
+			wantErr: true,
+			errMsg:  "database name is required",
+		},
+		{
+			name: "duplicate database name",
+			config: &Config{
+				Databases: []DatabaseConfig{{Name: "app"}, {Name: "app"}},
+				Host:      "localhost",
+				Port:      5432,
+				User:      "postgres",
+			},
+			wantErr: true,
+			errMsg:  `duplicate database name "app"`,
+		},
+		{
+			name: "invalid strategy",
+			config: &Config{
+				Databases: []DatabaseConfig{{Name: "app", Strategy: "bogus"}},
+				Host:      "localhost",
+				Port:      5432,
+				User:      "postgres",
+			},
+			wantErr: true,
+			errMsg:  "invalid clone strategy",
+		},
+		{
+			name: "invalid new_branch_from",
+			config: &Config{
+				Databases:     []DatabaseConfig{{Name: "app"}},
+				Host:          "localhost",
+				Port:          5432,
+				User:          "postgres",
+				NewBranchFrom: "bogus",
+			},
+			wantErr: true,
+			errMsg:  "invalid new_branch_from",
+		},
+		{
 			name: "missing host",
 			config: &Config{
-				Database: "testdb",
-				Port:     5432,
-				User:     "postgres",
+				Databases: []DatabaseConfig{{Name: "testdb"}},
+				Port:      5432,
+				User:      "postgres",
 			},
 			wantErr: true,
 			errMsg:  "host is required",
@@ -70,9 +125,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing port",
 			config: &Config{
-				Database: "testdb",
-				Host:     "localhost",
-				User:     "postgres",
+				Databases: []DatabaseConfig{{Name: "testdb"}},
+				Host:      "localhost",
+				User:      "postgres",
 			},
 			wantErr: true,
 			errMsg:  "port is required",
@@ -80,9 +135,9 @@ func TestValidate(t *testing.T) {
 		{
 			name: "missing user",
 			config: &Config{
-				Database: "testdb",
-				Host:     "localhost",
-				Port:     5432,
+				Databases: []DatabaseConfig{{Name: "testdb"}},
+				Host:      "localhost",
+				Port:      5432,
 			},
 			wantErr: true,
 			errMsg:  "user is required",
@@ -304,6 +359,66 @@ func TestEnsureDir(t *testing.T) {
 		err := EnsureDir(dir)
 		assert.NoError(t, err)
 	})
+}
+
+func TestNormalizeMigratesLegacyDatabase(t *testing.T) {
+	cfg := &Config{Database: "legacydb"}
+	cfg.Normalize()
+
+	require.Len(t, cfg.Databases, 1)
+	assert.Equal(t, "legacydb", cfg.Databases[0].Name)
+	assert.Equal(t, "", cfg.Databases[0].Strategy)
+	assert.Equal(t, "legacydb", cfg.Database)
+	assert.Equal(t, "main", cfg.BaselineBranch)
+	assert.Equal(t, "baseline", cfg.NewBranchFrom)
+}
+
+func TestNormalizeKeepsDatabaseInSyncWithPrimary(t *testing.T) {
+	cfg := &Config{Databases: []DatabaseConfig{{Name: "app"}, {Name: "app_identity"}}}
+	cfg.Normalize()
+
+	assert.Equal(t, "app", cfg.Database)
+	assert.Equal(t, "app", cfg.PrimaryDatabase())
+	assert.Equal(t, []string{"app", "app_identity"}, cfg.DatabaseNames())
+}
+
+func TestNormalizeDoesNotOverrideExplicitValues(t *testing.T) {
+	cfg := &Config{
+		Databases:      []DatabaseConfig{{Name: "app"}},
+		BaselineBranch: "develop",
+		NewBranchFrom:  "current",
+	}
+	cfg.Normalize()
+
+	assert.Equal(t, "develop", cfg.BaselineBranch)
+	assert.Equal(t, "current", cfg.NewBranchFrom)
+}
+
+func TestLoadMigratesLegacyConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(RootDir(tmpDir), 0755))
+
+	legacyJSON := `{"database":"olddb","host":"localhost","port":5432,"user":"postgres"}`
+	require.NoError(t, os.WriteFile(ConfigPath(tmpDir), []byte(legacyJSON), 0644))
+
+	cfg, err := Load(tmpDir)
+	require.NoError(t, err)
+
+	require.Len(t, cfg.Databases, 1)
+	assert.Equal(t, "olddb", cfg.Databases[0].Name)
+	assert.Equal(t, "olddb", cfg.Database)
+	assert.Equal(t, "main", cfg.BaselineBranch)
+	assert.Equal(t, "baseline", cfg.NewBranchFrom)
+}
+
+func TestBaselineBranchOrDefault(t *testing.T) {
+	assert.Equal(t, "main", (&Config{}).BaselineBranchOrDefault())
+	assert.Equal(t, "develop", (&Config{BaselineBranch: "develop"}).BaselineBranchOrDefault())
+}
+
+func TestNewBranchFromOrDefault(t *testing.T) {
+	assert.Equal(t, "baseline", (&Config{}).NewBranchFromOrDefault())
+	assert.Equal(t, "current", (&Config{NewBranchFrom: "current"}).NewBranchFromOrDefault())
 }
 
 func TestAddRemote(t *testing.T) {
