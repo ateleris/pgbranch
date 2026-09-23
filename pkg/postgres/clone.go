@@ -9,6 +9,13 @@ import (
 // resolved against src). dst must not already exist. If cloning fails, dst is
 // dropped so no partial database is left behind.
 func (c *Client) CloneDatabase(ctx context.Context, src, dst string, s Strategy) error {
+	if err := checkIdentifierLen(src); err != nil {
+		return fmt.Errorf("failed to clone database: %w", err)
+	}
+	if err := checkIdentifierLen(dst); err != nil {
+		return fmt.Errorf("failed to clone database: %w", err)
+	}
+
 	exists, err := c.Exists(ctx, dst)
 	if err != nil {
 		return fmt.Errorf("failed to clone database: %w", err)
