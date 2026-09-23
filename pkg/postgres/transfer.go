@@ -83,49 +83,45 @@ func (c *Client) RestoreDatabase(ctx context.Context, dbName string, r io.Reader
 	return nil
 }
 
-// isCriticalRestoreError checks if the pg_restore stderr indicates a critical failure
-// vs recoverable issues like version-specific SET parameters
+// benignPgRestoreErrors are pg_restore "error:" line substrings known to be
+// safe to ignore: pg_restore continues past them and the destination
+// database ends up complete anyway.
+//
+//   - "unrecognized configuration parameter": a dump made by a newer/older
+//     Postgres major version can set a GUC (via a plain SET statement) that
+//     doesn't exist on the target version. The SET statement is not data;
+//     failing it does not affect any table or object being restored.
+var benignPgRestoreErrors = []string{
+	"unrecognized configuration parameter",
+}
+
+// isCriticalRestoreError reports whether pg_restore's stderr indicates a
+// failure serious enough that the destination database cannot be trusted.
+// A non-zero pg_restore exit is critical by default -- including one with
+// no recognizable "pg_restore: error:" line at all (e.g. the process was
+// killed, or it never managed to connect), which must not be silently
+// treated as success -- unless every such line matches the benign allowlist
+// above.
 func isCriticalRestoreError(stderr string) bool {
-	// If no ERROR at all, it's not critical
-	if !strings.Contains(stderr, "ERROR") {
-		return false
-	}
+	sawErrorLine := false
+	for _, line := range strings.Split(stderr, "\n") {
+		if !strings.Contains(line, "pg_restore: error:") {
+			continue
+		}
+		sawErrorLine = true
 
-	// These are non-critical errors that can be safely ignored:
-	// - SET parameter errors (version compatibility issues)
-	// - "errors ignored on restore" indicates pg_restore continued successfully
-	nonCriticalPatterns := []string{
-		"unrecognized configuration parameter",
-		"errors ignored on restore",
-	}
-
-	for _, pattern := range nonCriticalPatterns {
-		if strings.Contains(stderr, pattern) {
-			// Check if there are other ERRORs besides the non-critical ones
-			lines := strings.Split(stderr, "\n")
-			criticalErrorCount := 0
-			for _, line := range lines {
-				if strings.Contains(line, "ERROR") {
-					isCritical := true
-					for _, np := range nonCriticalPatterns {
-						if strings.Contains(line, np) {
-							isCritical = false
-							break
-						}
-					}
-					// Also check the next line for context
-					if isCritical && !strings.Contains(line, "SET ") {
-						criticalErrorCount++
-					}
-				}
-			}
-			if criticalErrorCount == 0 {
-				return false
+		benign := false
+		for _, pattern := range benignPgRestoreErrors {
+			if strings.Contains(line, pattern) {
+				benign = true
+				break
 			}
 		}
+		if !benign {
+			return true
+		}
 	}
-
-	return true
+	return !sawErrorLine
 }
 
 func (c *Client) buildRestoreArgs(dbName string) []string {
