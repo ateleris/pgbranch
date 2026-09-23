@@ -137,12 +137,12 @@ func (r *Repo) HooksDir() (string, error) {
 // same-named tag by returning "heads/<branch>" instead of the plain name.
 func (r *Repo) CurrentBranch() (string, error) {
 	out, err := r.run("symbolic-ref", "-q", "HEAD")
-	if err != nil {
-		// A non-zero exit here means HEAD is detached (or does not point
-		// to a branch), not a real error.
-		return "", nil
+	if err == nil {
+		return strings.TrimPrefix(out, "refs/heads/"), nil
 	}
-	return strings.TrimPrefix(out, "refs/heads/"), nil
+	// A non-zero exit here means HEAD is detached (or does not point
+	// to a branch), not a real error.
+	return "", nil
 }
 
 // LocalBranches lists all local branch names.

@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/spf13/cobra"
+
 	"github.com/le-vlad/pgbranch/internal/credentials"
 	"github.com/le-vlad/pgbranch/pkg/config"
 	"github.com/le-vlad/pgbranch/pkg/remote"
-	"github.com/spf13/cobra"
 )
 
 func newRemoteCmd() *cobra.Command {

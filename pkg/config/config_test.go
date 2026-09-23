@@ -330,7 +330,7 @@ func TestConnectionURLForDB(t *testing.T) {
 func TestEnsureDir(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "pgbranch-ensuredir-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	t.Run("creates new directory", func(t *testing.T) {
 		dir := filepath.Join(tmpDir, "newdir")

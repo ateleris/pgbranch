@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/le-vlad/pgbranch/internal/testutil"
 )
 

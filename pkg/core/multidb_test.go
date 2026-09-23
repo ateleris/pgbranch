@@ -165,7 +165,6 @@ func TestMultiDatabaseWorkflow(t *testing.T) {
 	assert.Equal(t, "main", branches[0].Name)
 }
 
-
 // TestCheckout_MissingSnapshotForOneDatabase_NoDatabaseTouched verifies the
 // pre-flight check: if a branch is missing a snapshot for any configured
 // database, Checkout fails with a clear error naming it and does not touch

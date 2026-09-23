@@ -54,7 +54,7 @@ func (a *Applier) Apply(ctx context.Context, cs *ChangeSet) (*ApplyResult, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	for _, change := range cs.Changes {
 		sql := a.generator.GenerateChange(change)
@@ -220,7 +220,7 @@ func ValidateChanges(cs *ChangeSet) (warnings []string, errors []string) {
 func isNumericType(t string) bool {
 	numericTypes := []string{"integer", "int", "bigint", "smallint", "decimal", "numeric", "real", "double"}
 	for _, nt := range numericTypes {
-		if t == nt || fmt.Sprintf("%s", t) == nt {
+		if t == nt {
 			return true
 		}
 	}

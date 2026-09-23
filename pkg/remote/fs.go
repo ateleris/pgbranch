@@ -74,18 +74,18 @@ func (r *FilesystemRemote) Push(ctx context.Context, branchName string, reader i
 
 	_, err = io.Copy(f, reader)
 	if err != nil {
-		f.Close()
-		os.Remove(tmpPath)
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to write archive: %w", err)
 	}
 
 	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to close file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, archivePath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("failed to finalize archive: %w", err)
 	}
 

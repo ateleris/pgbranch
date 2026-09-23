@@ -5,8 +5,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/le-vlad/pgbranch/pkg/archive"
 	"github.com/spf13/cobra"
+
+	"github.com/le-vlad/pgbranch/pkg/archive"
 )
 
 func newPushCmd() *cobra.Command {

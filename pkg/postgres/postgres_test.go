@@ -25,7 +25,7 @@ func TestClientIntegration(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	cfg := pg.GetConfig()
 	client := NewClient(cfg)
@@ -85,7 +85,7 @@ func TestSnapshotAndRestoreIntegration(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	cfg := pg.GetConfig()
 	client := NewClient(cfg)
@@ -178,7 +178,7 @@ func TestSnapshotCreateRestoreDelete(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	cfg := pg.GetConfig()
 
@@ -235,7 +235,7 @@ func execSQL(ctx context.Context, cfg *config.Config, sql string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx, sql)
 	return err
@@ -246,7 +246,7 @@ func countRows(ctx context.Context, cfg *config.Config, table string) (int, erro
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var count int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
@@ -262,7 +262,7 @@ func rowExists(ctx context.Context, cfg *config.Config, table, column, value str
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + table + " WHERE " + column + " = $1)"

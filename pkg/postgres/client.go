@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/le-vlad/pgbranch/pkg/config"
 )
 
@@ -85,7 +86,7 @@ func (c *Client) DatabaseExists(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to check database existence: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	err = conn.QueryRow(ctx,
@@ -105,7 +106,7 @@ func (c *Client) CreateDatabase(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create database: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx, fmt.Sprintf("CREATE DATABASE %s", pgx.Identifier{c.Config.Database}.Sanitize()))
 	if err != nil {
@@ -120,7 +121,7 @@ func (c *Client) DropDatabase(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to drop database: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", pgx.Identifier{c.Config.Database}.Sanitize()))
 	if err != nil {
@@ -140,7 +141,7 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to PostgreSQL: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	err = conn.Ping(ctx)
 	if err != nil {
@@ -180,7 +181,7 @@ func (c *Client) TerminateConnectionsTo(ctx context.Context, dbName string) erro
 	if err != nil {
 		return nil
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, _ = conn.Exec(ctx, `
 		SELECT pg_terminate_backend(pid)

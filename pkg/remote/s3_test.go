@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 type mockS3Client struct {
@@ -121,7 +123,7 @@ func TestS3Remote_Pull_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pull() unexpected error: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	if size != int64(len(payload)) {
 		t.Errorf("size = %d, want %d", size, len(payload))
@@ -318,7 +320,10 @@ func TestS3Remote_Exists_True(t *testing.T) {
 func TestS3Remote_Exists_False(t *testing.T) {
 	mock := &mockS3Client{
 		headObjectFn: func(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
-			return nil, fmt.Errorf("not found")
+			return nil, &smithyhttp.ResponseError{
+				Response: &smithyhttp.Response{Response: &http.Response{StatusCode: http.StatusNotFound}},
+				Err:      fmt.Errorf("not found"),
+			}
 		},
 	}
 	r := newTestS3Remote(mock, "bucket", "")
@@ -329,6 +334,20 @@ func TestS3Remote_Exists_False(t *testing.T) {
 	}
 	if exists {
 		t.Errorf("Exists() = true, want false")
+	}
+}
+
+func TestS3Remote_Exists_Error(t *testing.T) {
+	mock := &mockS3Client{
+		headObjectFn: func(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+			return nil, fmt.Errorf("connection reset")
+		},
+	}
+	r := newTestS3Remote(mock, "bucket", "")
+
+	_, err := r.Exists(context.Background(), "dev")
+	if err == nil {
+		t.Fatalf("Exists() expected error, got nil")
 	}
 }
 

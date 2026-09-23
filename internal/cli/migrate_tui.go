@@ -234,10 +234,10 @@ func (m tuiModel) renderSnapshotTables() string {
 		name := tableNameStyle.Render(t.name)
 
 		if t.done {
-			b.WriteString(fmt.Sprintf("  %s %s\n",
+			fmt.Fprintf(&b, "  %s %s\n",
 				name,
 				doneStyle.Render("DONE"),
-			))
+			)
 		} else if t.total > 0 && t.copied > 0 {
 			pct := float64(t.copied) / float64(t.total)
 			bar := t.bar.ViewAs(pct)
@@ -246,24 +246,24 @@ func (m tuiModel) renderSnapshotTables() string {
 			if elapsed > 0 {
 				rate = float64(t.copied) / elapsed
 			}
-			b.WriteString(fmt.Sprintf("  %s %s %s/%s  %s\n",
+			fmt.Fprintf(&b, "  %s %s %s/%s  %s\n",
 				name,
 				bar,
 				formatCount(t.copied),
 				formatCount(t.total),
 				labelStyle.Render(fmt.Sprintf("%.0f rows/s", rate)),
-			))
+			)
 		} else {
-			b.WriteString(fmt.Sprintf("  %s %s\n",
+			fmt.Fprintf(&b, "  %s %s\n",
 				name,
 				pendingStyle.Render("pending"),
-			))
+			)
 		}
 		totalCopied += t.copied
 	}
 
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  Total: %s rows copied", formatCount(totalCopied)))
+	fmt.Fprintf(&b, "  Total: %s rows copied", formatCount(totalCopied))
 
 	return b.String()
 }

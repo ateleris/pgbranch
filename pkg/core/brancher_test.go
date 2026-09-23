@@ -23,7 +23,7 @@ func TestInitialize(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -57,7 +57,7 @@ func TestBrancherOperations(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -121,7 +121,7 @@ func TestBrancherOperations(t *testing.T) {
 
 	t.Run("CreateSecondBranch", func(t *testing.T) {
 		brancher.Metadata.CurrentBranch = "main"
-		brancher.Metadata.Save()
+		require.NoError(t, brancher.Metadata.Save())
 
 		err := brancher.CreateBranch(ctx, "feature-1", "")
 		require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestBrancherOperations(t *testing.T) {
 
 	t.Run("Status", func(t *testing.T) {
 		brancher.Metadata.CurrentBranch = "feature-1"
-		brancher.Metadata.Save()
+		require.NoError(t, brancher.Metadata.Save())
 
 		currentBranch, count := brancher.Status()
 		assert.Equal(t, "feature-1", currentBranch)
@@ -153,7 +153,7 @@ func TestCheckoutWorkflow(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -182,7 +182,7 @@ func TestCheckoutWorkflow(t *testing.T) {
 	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	count, err := countRows(ctx, cfg, "products")
 	require.NoError(t, err)
@@ -242,7 +242,7 @@ func TestDeleteBranch(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -263,7 +263,7 @@ func TestDeleteBranch(t *testing.T) {
 	err = brancher.CreateBranch(ctx, "feature-1", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	feature1Branch, _ := brancher.Metadata.GetBranch("feature-1")
 	feature1SnapshotDB := feature1Branch.Snapshot
@@ -303,7 +303,7 @@ func TestUpdateBranch(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -322,7 +322,7 @@ func TestUpdateBranch(t *testing.T) {
 	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	err = execSQL(ctx, cfg, "INSERT INTO items (name) VALUES ('Item2'), ('Item3'), ('Item4'), ('Item5')")
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func countRowsInDB(ctx context.Context, cfg *config.Config, table string) (int, 
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var count int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
@@ -373,7 +373,7 @@ func TestCheckoutNonExistentBranch(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -400,7 +400,7 @@ func TestFullE2EWorkflow(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -443,7 +443,7 @@ func TestFullE2EWorkflow(t *testing.T) {
 	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	userCount, err := countRows(ctx, cfg, "users")
 	require.NoError(t, err)
@@ -532,7 +532,7 @@ func execSQL(ctx context.Context, cfg *config.Config, sql string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err = conn.Exec(ctx, sql)
 	return err
@@ -543,7 +543,7 @@ func countRows(ctx context.Context, cfg *config.Config, table string) (int, erro
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var count int
 	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count)
@@ -559,7 +559,7 @@ func rowExists(ctx context.Context, cfg *config.Config, table, column, value str
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + table + " WHERE " + column + " = $1)"
@@ -576,7 +576,7 @@ func getProductPrice(ctx context.Context, cfg *config.Config, productName string
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	var price string
 	err = conn.QueryRow(ctx, "SELECT price FROM products WHERE name = $1", productName).Scan(&price)
@@ -596,7 +596,7 @@ func TestCheckoutAutoSave(t *testing.T) {
 
 	pg, err := testutil.StartPostgresContainer(ctx)
 	require.NoError(t, err)
-	defer pg.Stop(ctx)
+	defer func() { _ = pg.Stop(ctx) }()
 
 	testDir := testutil.SetupTestDir(t)
 	defer testDir.Cleanup(t)
@@ -622,7 +622,7 @@ func TestCheckoutAutoSave(t *testing.T) {
 	err = brancher.CreateBranch(ctx, "main", "")
 	require.NoError(t, err)
 	brancher.Metadata.CurrentBranch = "main"
-	brancher.Metadata.Save()
+	require.NoError(t, brancher.Metadata.Save())
 
 	err = brancher.CreateBranch(ctx, "feature", "")
 	require.NoError(t, err)

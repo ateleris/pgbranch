@@ -29,21 +29,19 @@ func findWorkspace(start string) (string, error) {
 		dir = parent
 	}
 
-	repo, err := gitx.Open(start)
-	if err != nil {
-		// Not a git repository either; fall back to start so callers get
-		// the usual "not initialized" error naming that directory.
-		return start, nil
+	if repo, err := gitx.Open(start); err == nil {
+		if top, err := repo.TopLevel(); err == nil && config.IsInitialized(top) {
+			return top, nil
+		}
+
+		if root, err := repo.MainWorktreeRoot(); err == nil && config.IsInitialized(root) {
+			return root, nil
+		}
 	}
 
-	if top, err := repo.TopLevel(); err == nil && config.IsInitialized(top) {
-		return top, nil
-	}
-
-	if root, err := repo.MainWorktreeRoot(); err == nil && config.IsInitialized(root) {
-		return root, nil
-	}
-
+	// Not a git repository, or no .pgbranch directory found in it either;
+	// fall back to start so callers get the usual "not initialized" error
+	// naming that directory.
 	return start, nil
 }
 
@@ -51,9 +49,8 @@ func findWorkspace(start string) (string, error) {
 // to: the git top-level directory when start is inside a git repository,
 // otherwise start itself.
 func workspaceRoot(start string) (string, error) {
-	repo, err := gitx.Open(start)
-	if err != nil {
-		return start, nil
+	if repo, err := gitx.Open(start); err == nil {
+		return repo.TopLevel()
 	}
-	return repo.TopLevel()
+	return start, nil
 }

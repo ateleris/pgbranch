@@ -156,7 +156,7 @@ func (c *Client) RestoreSnapshotFromReader(ctx context.Context, snapshotDBName s
 	}
 
 	if err := c.RestoreDatabase(ctx, snapshotDBName, r); err != nil {
-		c.DropDatabaseByName(ctx, snapshotDBName)
+		_ = c.DropDatabaseByName(ctx, snapshotDBName)
 		return fmt.Errorf("failed to restore database: %w", err)
 	}
 
@@ -168,7 +168,7 @@ func (c *Client) CreateEmptyDatabase(ctx context.Context, dbName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	query := fmt.Sprintf("CREATE DATABASE %s", sanitizeIdentifier(dbName))
 	_, err = conn.Exec(ctx, query)

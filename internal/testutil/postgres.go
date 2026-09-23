@@ -78,13 +78,13 @@ func StartPostgresContainerImageWithArgs(ctx context.Context, image string, serv
 
 	host, err := pgContainer.Host(ctx)
 	if err != nil {
-		pgContainer.Terminate(ctx)
+		_ = pgContainer.Terminate(ctx)
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
 	mappedPort, err := pgContainer.MappedPort(ctx, "5432")
 	if err != nil {
-		pgContainer.Terminate(ctx)
+		_ = pgContainer.Terminate(ctx)
 		return nil, fmt.Errorf("failed to get mapped port: %w", err)
 	}
 

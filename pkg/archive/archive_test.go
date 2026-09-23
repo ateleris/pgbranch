@@ -192,8 +192,8 @@ func TestSaveToFileLoadFromFileRoundTrip(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "pgbranch-archive-test-*.tar.gz")
 	require.NoError(t, err)
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
+	require.NoError(t, tmpFile.Close())
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	err = original.SaveToFile(tmpPath)
 	require.NoError(t, err)

@@ -306,7 +306,7 @@ func TestFilesystemRemote_Lifecycle(t *testing.T) {
 		t.Fatalf("Pull() error: %v", err)
 	}
 	pulled, err := io.ReadAll(rc)
-	rc.Close()
+	_ = rc.Close()
 	if err != nil {
 		t.Fatalf("ReadAll() error: %v", err)
 	}

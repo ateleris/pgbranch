@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/le-vlad/pgbranch/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/le-vlad/pgbranch/internal/testutil"
 )
 
 func TestGraceSchemaOnlyCopy(t *testing.T) {
@@ -20,12 +21,12 @@ func TestGraceSchemaOnlyCopy(t *testing.T) {
 	ctx := context.Background()
 
 	source, target := startSourceTarget(t, ctx)
-	defer source.Stop(ctx)
-	defer target.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
+	defer func() { _ = target.Stop(ctx) }()
 
 	// Create schema on source.
 	srcConn := connectTo(t, ctx, source)
-	defer srcConn.Close(ctx)
+	defer func() { _ = srcConn.Close(ctx) }()
 
 	_, err := srcConn.Exec(ctx, `
 		CREATE TABLE users (
@@ -44,7 +45,7 @@ func TestGraceSchemaOnlyCopy(t *testing.T) {
 
 	// Run schema copy.
 	tgtConn := connectTo(t, ctx, target)
-	defer tgtConn.Close(ctx)
+	defer func() { _ = tgtConn.Close(ctx) }()
 
 	tables := []string{"public.users", "public.orders"}
 	err = CopySchema(ctx, srcConn, tgtConn, tables, source.Database)
@@ -78,8 +79,8 @@ func TestGraceFullMigration(t *testing.T) {
 	ctx := context.Background()
 
 	source, target := startSourceTarget(t, ctx)
-	defer source.Stop(ctx)
-	defer target.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
+	defer func() { _ = target.Stop(ctx) }()
 
 	// Create schema and seed data on source.
 	srcConn := connectTo(t, ctx, source)
@@ -96,7 +97,7 @@ func TestGraceFullMigration(t *testing.T) {
 			('Charlie', 'charlie@example.com');
 	`)
 	require.NoError(t, err)
-	srcConn.Close(ctx)
+	_ = srcConn.Close(ctx)
 
 	cfg := migrationConfig(t, source, target, []string{"public.users"})
 
@@ -110,7 +111,7 @@ func TestGraceFullMigration(t *testing.T) {
 
 	// Verify data on target.
 	tgtConn := connectTo(t, ctx, target)
-	defer tgtConn.Close(ctx)
+	defer func() { _ = tgtConn.Close(ctx) }()
 
 	var count int
 	err = tgtConn.QueryRow(ctx, "SELECT count(*) FROM users").Scan(&count)
@@ -132,10 +133,10 @@ func TestValidateSource_WalLevel(t *testing.T) {
 
 	// Start with wal_level=logical.
 	source := startLogicalPG(t, ctx)
-	defer source.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
 
 	conn := connectTo(t, ctx, source)
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	err := ValidateSource(ctx, conn)
 	require.NoError(t, err)
@@ -149,10 +150,10 @@ func TestResolveTables_Wildcard(t *testing.T) {
 	ctx := context.Background()
 
 	source := startLogicalPG(t, ctx)
-	defer source.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
 
 	conn := connectTo(t, ctx, source)
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err := conn.Exec(ctx, `
 		CREATE TABLE test_a (id SERIAL PRIMARY KEY);
@@ -181,10 +182,10 @@ func TestResolveTables_Specific(t *testing.T) {
 	ctx := context.Background()
 
 	source := startLogicalPG(t, ctx)
-	defer source.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
 
 	conn := connectTo(t, ctx, source)
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	_, err := conn.Exec(ctx, "CREATE TABLE resolve_test (id SERIAL PRIMARY KEY)")
 	require.NoError(t, err)
@@ -207,8 +208,8 @@ func TestE2E_InitialSnapshot(t *testing.T) {
 
 	ctx := context.Background()
 	source, target := startSourceTarget(t, ctx)
-	defer source.Stop(ctx)
-	defer target.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
+	defer func() { _ = target.Stop(ctx) }()
 
 	srcConn := connectTo(t, ctx, source)
 	_, err := srcConn.Exec(ctx, `
@@ -230,7 +231,7 @@ func TestE2E_InitialSnapshot(t *testing.T) {
 		INSERT INTO orders (user_id, total) VALUES (1, 99.99), (2, 149.50), (1, 25.00);
 	`)
 	require.NoError(t, err)
-	srcConn.Close(ctx)
+	_ = srcConn.Close(ctx)
 
 	cfg := migrationConfig(t, source, target, []string{"public.users", "public.orders"})
 	migrator := NewMigrator(cfg, false, RunSnapshotOnly)
@@ -241,7 +242,7 @@ func TestE2E_InitialSnapshot(t *testing.T) {
 	require.NoError(t, migrator.Run(timeoutCtx))
 
 	tgtConn := connectTo(t, ctx, target)
-	defer tgtConn.Close(ctx)
+	defer func() { _ = tgtConn.Close(ctx) }()
 
 	var userCount, orderCount int
 	require.NoError(t, tgtConn.QueryRow(ctx, "SELECT count(*) FROM users").Scan(&userCount))
@@ -272,8 +273,8 @@ func TestE2E_LogicalReplication(t *testing.T) {
 
 	ctx := context.Background()
 	source, target := startSourceTarget(t, ctx)
-	defer source.Stop(ctx)
-	defer target.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
+	defer func() { _ = target.Stop(ctx) }()
 
 	srcConn := connectTo(t, ctx, source)
 	_, err := srcConn.Exec(ctx, `
@@ -287,7 +288,7 @@ func TestE2E_LogicalReplication(t *testing.T) {
 			('Bob', 'bob@example.com');
 	`)
 	require.NoError(t, err)
-	srcConn.Close(ctx)
+	_ = srcConn.Close(ctx)
 
 	cfg := migrationConfig(t, source, target, []string{"public.users"})
 	migrator := NewMigrator(cfg, false, RunFull)
@@ -301,7 +302,7 @@ func TestE2E_LogicalReplication(t *testing.T) {
 	}()
 
 	tgtConn := connectTo(t, ctx, target)
-	defer tgtConn.Close(ctx)
+	defer func() { _ = tgtConn.Close(ctx) }()
 
 	require.Eventually(t, func() bool {
 		var count int
@@ -310,7 +311,7 @@ func TestE2E_LogicalReplication(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond, "snapshot data not replicated to target")
 
 	src := connectTo(t, ctx, source)
-	defer src.Close(ctx)
+	defer func() { _ = src.Close(ctx) }()
 
 	_, err = src.Exec(ctx, "INSERT INTO users (name, email) VALUES ('Charlie', 'charlie@example.com')")
 	require.NoError(t, err)
@@ -356,8 +357,8 @@ func TestE2E_ReplicationDataTypes(t *testing.T) {
 
 	ctx := context.Background()
 	source, target := startSourceTarget(t, ctx)
-	defer source.Stop(ctx)
-	defer target.Stop(ctx)
+	defer func() { _ = source.Stop(ctx) }()
+	defer func() { _ = target.Stop(ctx) }()
 
 	srcConn := connectTo(t, ctx, source)
 	_, err := srcConn.Exec(ctx, `
@@ -409,7 +410,7 @@ func TestE2E_ReplicationDataTypes(t *testing.T) {
 		);
 	`)
 	require.NoError(t, err)
-	srcConn.Close(ctx)
+	_ = srcConn.Close(ctx)
 
 	cfg := migrationConfig(t, source, target, []string{"public.typetest"})
 	migrator := NewMigrator(cfg, false, RunFull)
@@ -423,7 +424,7 @@ func TestE2E_ReplicationDataTypes(t *testing.T) {
 	}()
 
 	tgtConn := connectTo(t, ctx, target)
-	defer tgtConn.Close(ctx)
+	defer func() { _ = tgtConn.Close(ctx) }()
 
 	require.Eventually(t, func() bool {
 		var count int
@@ -494,7 +495,7 @@ func TestE2E_ReplicationDataTypes(t *testing.T) {
 	assert.Nil(t, colNullable)
 
 	src := connectTo(t, ctx, source)
-	defer src.Close(ctx)
+	defer func() { _ = src.Close(ctx) }()
 
 	_, err = src.Exec(ctx, `
 		INSERT INTO typetest (

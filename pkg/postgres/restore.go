@@ -8,7 +8,7 @@ import (
 // RestoreFromSnapshot replaces the configured database with a copy of the
 // given snapshot database.
 func (c *Client) RestoreFromSnapshot(ctx context.Context, snapshotDBName string) error {
-	c.TerminateConnections(ctx)
+	_ = c.TerminateConnections(ctx)
 
 	if err := c.DropDatabase(ctx); err != nil {
 		return fmt.Errorf("failed to drop database: %w", err)

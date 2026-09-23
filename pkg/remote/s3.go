@@ -3,8 +3,10 @@ package remote
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	awscreds "github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 type s3API interface {
@@ -249,13 +252,15 @@ func (r *S3Remote) Exists(ctx context.Context, branchName string) (bool, error) 
 		Bucket: aws.String(r.bucket),
 		Key:    aws.String(key),
 	})
-	if err != nil {
-		// Check if it's a "not found" error
-		// The AWS SDK v2 doesn't have a nice way to check this
-		return false, nil
+	if err == nil {
+		return true, nil
 	}
 
-	return true, nil
+	var respErr *smithyhttp.ResponseError
+	if errors.As(err, &respErr) && respErr.HTTPStatusCode() == http.StatusNotFound {
+		return false, nil
+	}
+	return false, fmt.Errorf("failed to check existence in S3: %w", err)
 }
 
 func isArchiveFile(filename string) bool {

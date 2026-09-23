@@ -53,7 +53,7 @@ func init() {
 	initCmd.Flags().StringVarP(&initPassword, "password", "W", "", "PostgreSQL password (stored in plain text; prefer PGPASSWORD or ~/.pgpass)")
 	initCmd.Flags().StringVar(&initBaseline, "baseline", "main", "Baseline branch name")
 	initCmd.Flags().BoolVar(&initInstallHook, "hook", false, "Install the post-checkout git hook")
-	initCmd.MarkFlagRequired("database")
+	_ = initCmd.MarkFlagRequired("database")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {

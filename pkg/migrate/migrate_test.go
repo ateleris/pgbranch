@@ -82,9 +82,9 @@ tables: ["*"]
 
 func TestLoadConfig_MissingRequired(t *testing.T) {
 	tests := []struct {
-		name    string
-		yaml    string
-		errMsg  string
+		name   string
+		yaml   string
+		errMsg string
 	}{
 		{
 			name: "missing source host",
