@@ -208,7 +208,10 @@ func TestCheckoutWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	err = brancher.Checkout(ctx, "main")
+	// Checking out the branch that is already current is a no-op (it must
+	// not discard uncommitted work); discarding the modification and
+	// restoring "main"'s original snapshot is done with Reset instead.
+	err = brancher.Reset(ctx, "main")
 	require.NoError(t, err)
 
 	assert.Equal(t, "main", brancher.Metadata.CurrentBranch)
@@ -671,4 +674,57 @@ func TestCheckoutAutoSave(t *testing.T) {
 	exists, err = rowExists(ctx, cfg, "items", "name", "original_item")
 	require.NoError(t, err)
 	assert.False(t, exists)
+}
+
+// TestCheckoutCurrentBranchIsNoOp verifies that checking out the branch that
+// is already current does not replace the working database with its own
+// (now stale) snapshot, which would discard uncommitted work.
+func TestCheckoutCurrentBranchIsNoOp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	pg, err := testutil.StartPostgresContainer(ctx)
+	require.NoError(t, err)
+	defer func() { _ = pg.Stop(ctx) }()
+
+	testDir := testutil.SetupTestDir(t)
+	defer testDir.Cleanup(t)
+
+	cfg := pg.GetConfig()
+
+	err = Initialize(testDir.Path, cfg)
+	require.NoError(t, err)
+
+	setupSQL := `
+		CREATE TABLE items (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(100) NOT NULL
+		);
+		INSERT INTO items (name) VALUES ('original_item');
+	`
+	err = execSQL(ctx, cfg, setupSQL)
+	require.NoError(t, err)
+
+	brancher, err := Open(testDir.Path)
+	require.NoError(t, err)
+
+	err = brancher.CreateBranch(ctx, "main", "")
+	require.NoError(t, err)
+	brancher.Metadata.CurrentBranch = "main"
+	require.NoError(t, brancher.Metadata.Save())
+
+	// Diverge the working database from the "main" snapshot without saving.
+	err = execSQL(ctx, cfg, `INSERT INTO items (name) VALUES ('uncommitted_work');`)
+	require.NoError(t, err)
+
+	// Checking out the already-current branch must not discard this work.
+	err = brancher.Checkout(ctx, "main")
+	require.NoError(t, err)
+
+	exists, err := rowExists(ctx, cfg, "items", "name", "uncommitted_work")
+	require.NoError(t, err)
+	assert.True(t, exists, "checkout of the current branch must be a no-op and not restore the stale snapshot")
 }

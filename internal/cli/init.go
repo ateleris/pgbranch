@@ -119,13 +119,29 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	brancher, err := core.Open(dir)
 	if err == nil {
-		if createErr := brancher.CreateBranch(cmd.Context(), initBaseline, ""); createErr == nil {
-			brancher.Metadata.CurrentBranch = initBaseline
+		gitBranch := ""
+		if repo, gerr := gitx.Open(dir); gerr == nil {
+			if cb, cerr := repo.CurrentBranch(); cerr == nil {
+				gitBranch = cb
+			}
+		}
+
+		toCreate, current := initialBranches(initBaseline, gitBranch)
+
+		allOK := true
+		for _, name := range toCreate {
+			if createErr := brancher.CreateBranch(cmd.Context(), name, ""); createErr == nil {
+				fmt.Printf("%s Created branch '%s'\n", green("✓"), name)
+			} else {
+				allOK = false
+				yellow := color.New(color.FgYellow).SprintFunc()
+				fmt.Printf("%s Could not create branch '%s' automatically: %v\n", yellow("!"), name, createErr)
+			}
+		}
+
+		if allOK {
+			brancher.Metadata.CurrentBranch = current
 			_ = brancher.Metadata.Save()
-			fmt.Printf("%s Created baseline branch '%s'\n", green("✓"), initBaseline)
-		} else {
-			yellow := color.New(color.FgYellow).SprintFunc()
-			fmt.Printf("%s Could not create baseline branch '%s' automatically: %v\n", yellow("!"), initBaseline, createErr)
 		}
 	}
 
@@ -177,6 +193,21 @@ func parseInitDatabases(specs []string, defaultStrategy string) ([]config.Databa
 	}
 
 	return databases, nil
+}
+
+// initialBranches decides, from the configured baseline branch and the git
+// branch checked out when init runs (empty when not in a git repository or
+// HEAD is detached), which branch(es) init should snapshot the working
+// databases into and which one becomes current. The baseline branch is
+// always snapshotted; if the current git branch differs from it, that
+// branch is snapshotted too (from the same working state) and becomes
+// current, so init does not silently record the working databases under
+// the wrong git branch.
+func initialBranches(baseline, gitBranch string) (toCreate []string, current string) {
+	if gitBranch == "" || gitBranch == baseline {
+		return []string{baseline}, baseline
+	}
+	return []string{baseline, gitBranch}, gitBranch
 }
 
 // addToGitExclude adds .pgbranch/ to the repository's .git/info/exclude

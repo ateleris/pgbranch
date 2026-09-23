@@ -246,14 +246,21 @@ func (b *Brancher) CreateBranch(ctx context.Context, name, from string) error {
 
 // Checkout switches to the specified branch by replacing each working
 // database with a copy of the branch's snapshot for it. The current
-// branch's state is saved first.
+// branch's state is saved first. Checking out the branch that is already
+// current is a no-op: replacing the working databases with their own
+// (now stale, since a checkout does not auto-save) snapshot would discard
+// any uncommitted work.
 func (b *Brancher) Checkout(ctx context.Context, name string) error {
 	branch, ok := b.Metadata.GetBranch(name)
 	if !ok {
 		return branchNotFound(name)
 	}
 
-	if b.Metadata.CurrentBranch != "" && b.Metadata.CurrentBranch != name {
+	if b.Metadata.CurrentBranch == name {
+		return nil
+	}
+
+	if b.Metadata.CurrentBranch != "" {
 		if err := b.UpdateBranch(ctx, b.Metadata.CurrentBranch); err != nil {
 			return fmt.Errorf("failed to save current branch '%s': %w", b.Metadata.CurrentBranch, err)
 		}
